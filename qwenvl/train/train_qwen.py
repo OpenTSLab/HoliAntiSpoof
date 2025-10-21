@@ -411,8 +411,6 @@ def train():
     with initialize_config_dir(config_dir=config_dir, version_base=None):
         config = compose(config_name=config_fname, overrides=args.options)
     OmegaConf.resolve(config)
-    import ipdb
-    ipdb.set_trace()
     config = OmegaConf.to_container(config)
 
     training_args, = parser.parse_dict(config["trainer"], allow_extra_keys=True)
