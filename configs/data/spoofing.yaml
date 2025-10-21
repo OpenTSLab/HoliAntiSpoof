@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 train:
-  _target_: qwenvl.data.data_qwen.AudioSpoofingWithEmbeddingDataset
+  _target_: qwenvl.data.data_qwen.AudioSpoofingDataset
   stage: training
   train_type: ${global.train_type}
   model_type: ${global.model_type}

@@ -35,7 +35,7 @@ from omegaconf import OmegaConf
 from qwenvl.train.utils import get_torch_dtype, set_seed
 from qwenvl.train.argument import TrainingArguments
 from qwenvl.train.trainer import QwenVLTrainer
-from qwenvl.model import ModelTypeMixin
+from qwenvl.model import ModelProtocol, MODEL_TO_LORA_EXCLUDE_MODULES
 
 
 def collate_fn_single_sample(batch):
@@ -109,7 +109,7 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
         trainer._save(output_dir, state_dict=cpu_state_dict)  # noqa
 
 
-def set_model_frozen_trainable(trainable_cfg: dict, model: ModelTypeMixin, use_lora: bool):
+def set_model_frozen_trainable(trainable_cfg: dict, model: ModelProtocol, use_lora: bool):
     if model.model_type == "qwen2.5vl":
         if trainable_cfg["vision_encoder"]:
             model.visual.requires_grad_(True)
@@ -251,30 +251,14 @@ def initialize_model(config: dict, training_args: TrainingArguments):
     return model
 
 
-def load_maybe_lora_ckpt(model: ModelTypeMixin, pretrained_ckpt: str, is_lora: bool):
+def load_maybe_lora_ckpt(model: ModelProtocol, pretrained_ckpt: str, is_lora: bool):
     if is_lora:
-        if model.model_type == "qwen2.5vl":
-            audio_layers = model.audio.layers
-            del model.audio.layers
-            model = PeftModel.from_pretrained(model, pretrained_ckpt)
-            model.model.audio.layers = audio_layers
-        elif model.model_type == "qwen2.5omni":
-            audio_tower = model.audio_tower
-            del model.audio_tower
-            model = PeftModel.from_pretrained(model, pretrained_ckpt)
-            model.model.audio_tower = audio_tower
+        model = apply_or_load_lora_safely(model, lora_config=None, lora_ckpt=pretrained_ckpt)
+
+        if model.model_type in ["qwen2.5omni", "qwen2audio"]:
             audio_ckpt = list(Path(pretrained_ckpt).glob("global_step*/mp_rank_00_model_states.pt"))[0]
-            load_non_lora_params_from_ckpt(model, audio_ckpt, ["audio_tower"])
-        elif model.model_type == "qwen2audio":
-            audio_tower = model.audio_tower
-            del model.audio_tower
-            multi_modal_projector = model.multi_modal_projector
-            del model.multi_modal_projector
-            model = PeftModel.from_pretrained(model, pretrained_ckpt)
-            model.model.audio_tower = audio_tower
-            model.model.multi_modal_projector = multi_modal_projector
-            audio_ckpt = list(Path(pretrained_ckpt).glob("global_step*/mp_rank_00_model_states.pt"))[0]
-            load_non_lora_params_from_ckpt(model, audio_ckpt, ["audio_tower", "multi_modal_projector"])
+            load_non_lora_params_from_ckpt(model, audio_ckpt, MODEL_TO_LORA_EXCLUDE_MODULES[model.model_type])
+
         model = model.merge_and_unload()
     else:
         ckpt = load_file(Path(pretrained_ckpt) / "model.safetensors")
@@ -282,7 +266,9 @@ def load_maybe_lora_ckpt(model: ModelTypeMixin, pretrained_ckpt: str, is_lora: b
     return model
 
 
-def apply_lora_safely(model: nn.Module, lora_config: LoraConfig, exclude_attrs: list[str]):
+def apply_or_load_lora_safely(
+    model: ModelProtocol, lora_config: LoraConfig | None = None, lora_ckpt: str | None = None
+):
     """
     A generic helper that temporarily removes certain submodules before LoRA injection,
     then restores them afterward.
@@ -295,14 +281,17 @@ def apply_lora_safely(model: nn.Module, lora_config: LoraConfig, exclude_attrs: 
             The base model before LoRA injection.
         lora_config:
             Configuration used by get_peft_model().
-        exclude_attrs:
-            A list of attribute paths (dot-separated) to exclude from LoRA injection.
-            Example: ["audio_tower", "multi_modal_projector", "audio.layers"]
+        lora_ckpt:
+            Path to the LoRA checkpoint.
+            
 
     Returns:
-        model: torch.nn.Module
+        model: ModelProtocol
             The LoRA-injected model with the excluded modules reattached.
     """
+    exclude_attrs = MODEL_TO_LORA_EXCLUDE_MODULES[model.model_type]
+
+    assert lora_config is not None or lora_ckpt is not None
 
     # Step 1. Save excluded modules and temporarily delete them from the model
     excluded = {}
@@ -316,8 +305,11 @@ def apply_lora_safely(model: nn.Module, lora_config: LoraConfig, exclude_attrs: 
         excluded[attr_path] = getattr(parent, attr_name)
         delattr(parent, attr_name)
 
-    # Step 2. Inject LoRA (PEFT)
-    model = get_peft_model(model, lora_config)
+    # Step 2. Inject LoRA (PEFT) or load LoRA from checkpoint
+    if lora_config is not None:
+        model = get_peft_model(model, lora_config)
+    elif lora_ckpt is not None:
+        model = PeftModel.from_pretrained(model, lora_ckpt)
 
     # Step 3. Restore previously excluded modules
     for attr_path, module in excluded.items():
@@ -331,7 +323,7 @@ def apply_lora_safely(model: nn.Module, lora_config: LoraConfig, exclude_attrs: 
     return model
 
 
-def set_lora(model: ModelTypeMixin, model_cfg: dict):
+def set_lora(model: ModelProtocol, model_cfg: dict):
     if "lora_config" not in model_cfg:
         return model
     trainable_cfg = model_cfg["trainable_config"]
@@ -347,7 +339,6 @@ def set_lora(model: ModelTypeMixin, model_cfg: dict):
             modules_to_save.append("audio.qformer")
             modules_to_save.append("audio.q_tokens")
             modules_to_save.append("audio.audio_proj")
-        lora_exclude_modules = ["audio.layers"]
     elif model.model_type == "qwen2.5omni":
         if trainable_cfg["vision_encoder"]:
             modules_to_save.append("visual")
@@ -358,20 +349,14 @@ def set_lora(model: ModelTypeMixin, model_cfg: dict):
         if trainable_cfg["audio_adapter"]:
             modules_to_save.append("audio_tower.ln_post")
             modules_to_save.append("audio_tower.proj")
-        lora_exclude_modules = ["audio_tower"]
     elif model.model_type == "qwen2audio":
         if trainable_cfg["audio_encoder"]:
             modules_to_save.append("audio_tower")
         if trainable_cfg["audio_adapter"]:
             modules_to_save.append("multi_modal_projector")
-        lora_exclude_modules = ["audio_tower", "multi_modal_projector"]
 
     lora_config = instantiate(model_cfg["lora_config"], modules_to_save=modules_to_save, _convert_="all")
-    model = apply_lora_safely(
-        model,
-        lora_config,
-        lora_exclude_modules,
-    )
+    model = apply_or_load_lora_safely(model, lora_config=lora_config, lora_ckpt=None)
 
     for k, v in model.named_parameters():
         if "lora" in k:
@@ -427,9 +412,9 @@ def train():
         OmegaConf.save(config, exp_dir / "config.yaml")
     dist.barrier()
 
-    train_type = config["train_dataset"]["train_type"]
+    train_type = config["global"]["train_type"]
     assert train_type in ["sft", "dpo", "gdpo", "grpo"], f"train_type {train_type} is not supported"
-    assert config["model_type"] in [
+    assert config["global"]["model_type"] in [
         "qwen2.5vl", "qwen2.5omni", "qwen2audio"
     ], f"model_type {config['model_type']} is not supported"
 

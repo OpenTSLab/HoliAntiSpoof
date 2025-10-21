@@ -126,9 +126,9 @@ def _is_peft_model(model):
 
 class QwenVLTrainer(Trainer):
     def __init__(self, *args, **kwargs):
+        self.train_type = kwargs.pop("train_type", "sft")
         super().__init__(*args, **kwargs)
         self.dpo_loss_fct = LigerFusedLinearDPOLoss()
-        self.train_type = kwargs.get("train_type", "sft")
 
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
         """

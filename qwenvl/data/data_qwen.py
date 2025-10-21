@@ -25,7 +25,6 @@ from transformers.feature_extraction_sequence_utils import SequenceFeatureExtrac
 from qwenvl.data.rope2d import get_rope_index_25, get_rope_index_2
 from qwenvl.data.processing_qwen2_5_omni import Qwen2_5OmniProcessor
 from qwenvl.data.processing_qwen2_audio import Qwen2AudioProcessor
-from qwenvl.train.argument import DataArguments
 from qwenvl.train.utils import rank0_print
 
 IGNORE_INDEX = -100
