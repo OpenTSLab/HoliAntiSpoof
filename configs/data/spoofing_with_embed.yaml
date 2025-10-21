@@ -1,0 +1,26 @@
+defaults:
+  - datasets@data_lists: all_data
+  - _self_
+
+embedding_dir: /mnt/shared-storage-user/xuxuenan/workspace/nii_anti_deepfake/embeddings/mms_300m
+
+train:
+  _target_: qwenvl.data.data_qwen.AudioSpoofingWithEmbeddingDataset
+  stage: training
+  train_type: ${global.train_type}
+  model_type: ${global.model_type}
+  dataset_list: ${..data_lists.train}
+  processor: ${global.processor}
+  data_format: ${global.data_format}
+  embedding_dir: ${..embedding_dir}
+
+val:
+  _target_: qwenvl.data.data_qwen.AudioSpoofingWithEmbeddingDataset
+  stage: training
+  train_type: ${global.train_type}
+  model_type: ${global.model_type}
+  dataset_list: ${..data_lists.val}
+  processor: ${global.processor}
+  data_format: ${global.data_format}
+  dataset_max_samples: 1000
+  embedding_dir: ${..embedding_dir}

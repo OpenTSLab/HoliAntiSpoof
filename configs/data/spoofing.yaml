@@ -1,0 +1,22 @@
+defaults:
+  - datasets@data_lists: all_data
+  - _self_
+
+train:
+  _target_: qwenvl.data.data_qwen.AudioSpoofingWithEmbeddingDataset
+  stage: training
+  train_type: ${global.train_type}
+  model_type: ${global.model_type}
+  dataset_list: ${..data_lists.train}
+  processor: ${global.processor}
+  data_format: ${global.data_format}
+
+val:
+  _target_: qwenvl.data.data_qwen.AudioSpoofingDataset
+  stage: training
+  train_type: ${global.train_type}
+  model_type: ${global.model_type}
+  dataset_list: ${..data_lists.val}
+  processor: ${global.processor}
+  data_format: ${global.data_format}
+  dataset_max_samples: 1000

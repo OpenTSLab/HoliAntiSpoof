@@ -1,0 +1,26 @@
+defaults:
+  - override hydra/job_logging: none
+
+
+infer_dir: "experiments/all_data/qwen2_5omni/lora_r_64_alpha_128_audio_encoder_trainable_steps_150k_metric_loss_lr_2e-5/infer_step150000"
+
+pred_files:
+  - ${infer_dir}/partial_spoof.json
+  - ${infer_dir}/sine.json
+  - ${infer_dir}/codecfake_ntu.json
+  - ${infer_dir}/partial_edit.json
+  - ${infer_dir}/vctk.json
+  - ${infer_dir}/asvspoof2019.json
+
+output_file: ${infer_dir}/results/composite.txt
+
+duration_files:
+  - "/cpfs04/user/xuxuenan/workspace/speech_to_text/data/spoofing/asvspoof2019/duration.csv"
+  - "/cpfs04/user/xuxuenan/workspace/speech_to_text/data/spoofing/partial_spoof/duration.csv"
+  - "/cpfs04/user/xuxuenan/workspace/speech_to_text/data/spoofing/partial_edit/duration.csv"
+  - "/cpfs04/user/xuxuenan/workspace/speech_to_text/data/spoofing/sine/duration.csv"
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .

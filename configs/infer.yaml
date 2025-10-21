@@ -1,0 +1,18 @@
+defaults:
+  - override hydra/job_logging: none
+
+infer_datasets:
+  # - data/asvspoof2019/eval.json
+  # - data/partial_spoof/eval_5000.json
+  - data/sine/test_2000.json
+  # - data/codecfake_ntu/test_2000.json
+  # - data/partial_edit/test_2000.json
+  # - data/vctk/test_2000.json
+
+do_sample: false
+num_sample: 1
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .

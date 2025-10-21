@@ -1,0 +1,29 @@
+architecture:
+  _target_: qwenvl.model.qwen2_5_omni.modeling_qwen2_5_omni.Qwen2_5OmniThinkerForConditionalGeneration.from_pretrained
+  config:
+    _target_: qwenvl.model.qwen2_5_omni.configuration_qwen2_5_omni.Qwen2_5OmniThinkerConfig.from_pretrained
+    pretrained_model_name_or_path: ${global.pretrained_ckpt}
+    cache_dir: Null
+  pretrained_model_name_or_path: ${global.pretrained_ckpt}
+  cache_dir: Null
+  attn_implementation: flash_attention_2
+
+# lora_ckpt: xxx
+
+trainable_config:
+  _target_: peft.LoraConfig
+  vision_encoder: false
+  vision_adapter: false
+  audio_encoder: true
+  audio_adapter: true
+  llm: false
+
+lora_config:
+  r: 64
+  lora_alpha: 128
+  lora_dropout: 0.05
+  bias: none
+  lora_ckpt: Null
+  use_dora: true
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+  task_type: "CAUSAL_LM"
