@@ -33,9 +33,9 @@ echo "eval_keyword: $eval_keyword"
 
 export PYTHONPATH=.
 
-python evaluation/eval_real_fake.py \
-    --config-name eval_asvspoof2019 \
-    infer_dir=$infer_dir
+# python evaluation/eval_real_fake.py \
+#     --config-name eval_asvspoof2019 \
+#     infer_dir=$infer_dir
 
 python evaluation/eval_real_fake.py \
     --config-name eval_composite \

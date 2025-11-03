@@ -172,5 +172,12 @@ dataset/
 .vscode
 
 data/*
+data_cot/*
 experiments/*
+
 archive/*
+
+data_preprocess/
+!data_preprocess/transform_to_qwen_format.py
+
+scripts/*rjob*

@@ -2280,6 +2280,10 @@ class Qwen2_5OmniThinkerForConditionalGeneration(
 
     def __init__(self, config: Qwen2_5OmniThinkerConfig):
         super().__init__(config)
+        self.build_model(config)
+        self.post_init()
+
+    def build_model(self, config: Qwen2_5OmniThinkerConfig):
         self.audio_tower = Qwen2_5OmniAudioEncoder._from_config(
             config.audio_config, attn_implementation=config._attn_implementation
         )
@@ -2296,8 +2300,6 @@ class Qwen2_5OmniThinkerForConditionalGeneration(
         self.pad_token_id = self.config.pad_token_id if self.config.pad_token_id is not None else -1
         self.spatial_merge_size = config.vision_config.spatial_merge_size
         self.rope_deltas = None
-
-        self.post_init()
 
     @property
     def model_type(self, ):
@@ -2487,7 +2489,6 @@ class Qwen2_5OmniThinkerForConditionalGeneration(
         loss = None
         logits = self.lm_head(hidden_states)
         if labels is not None:
-            # loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.get_text_config().vocab_size)
             loss = LigerForCausalLMLoss(
                 hidden_states=hidden_states,
                 lm_head_weight=self.lm_head.weight,

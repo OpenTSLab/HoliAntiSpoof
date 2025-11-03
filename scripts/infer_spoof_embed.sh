@@ -54,10 +54,12 @@ for pair in "${datasets[@]}"; do
     echo "Running inference for dataset: ${dataset_name}"
 
     $TORCHRUN --nproc_per_node=${N_GPUS} --nnodes=${NODE_COUNT} --node_rank=${NODE_RANK} --master_addr=${MASTER_ADDR} \
+        --master_port=23817 \
         qwenvl/train/inference.py \
         -c configs/infer.yaml \
         --options \
         ckpt_dir=$ckpt_path \
+        data@data_dict=spoofing_with_embed \
         data_dict.test.dataset_list.0=${test_file} \
         ++output_fname=$output_dir/${dataset_name}.json \
         ++test_dataloader.batch_size=1

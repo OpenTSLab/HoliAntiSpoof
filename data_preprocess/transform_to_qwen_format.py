@@ -31,7 +31,6 @@ transformed to
 
 import json
 import random
-import argparse
 from pathlib import Path
 
 import fire
@@ -40,10 +39,10 @@ random.seed(42)
 
 
 class Runner:
-    def transform(self, input: str = "", output: str = ""):
+    def transform(self, input: str, output: str):
 
         salmonn_prompts = json.load(
-            open("/cpfs04/user/xuxuenan/workspace/speech_to_text/"
+            open("/mnt/shared-storage-user/xuxuenan/workspace/duplex_training/"
                  "salmonn_prompts/train_prompt.json")
         )
         data = json.load(open(input, "r"))

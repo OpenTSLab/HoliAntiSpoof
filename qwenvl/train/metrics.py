@@ -39,3 +39,8 @@ class SpoofingAccuracy:
                     correct += 1
 
         return {"real_fake_acc": correct / len(predictions)}
+
+
+class RewardWrapper:
+    def __call__(self, eval_pred: EvalPrediction, processing_class: AutoTokenizer):
+        return {"reward": eval_pred.losses.mean().item()}

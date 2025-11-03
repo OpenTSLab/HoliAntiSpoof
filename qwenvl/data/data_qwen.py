@@ -36,7 +36,7 @@ DEFAULT_VIDEO_TOKEN = "<video>"
 DEFAULT_AUDIO_TOKEN = "<audio>"
 
 
-def read_jsonl(path):
+def read_jsonl(path: str) -> list:
     with open(path, "r") as f:
         return [json.loads(line) for line in f]
 
@@ -228,7 +228,7 @@ class MMQwenDatasetBase:
     dataset_list: list[str]
     dataset_max_samples: int = field(default=None)
 
-    def replace_image_token(self):
+    def replace_image_token(self) -> None:
         """
         Replace <image> token with <audio> tokens in the raw data.
         """
@@ -244,7 +244,7 @@ class MMQwenDatasetBase:
             if "<image>" in input_dict["value"] and not "image" in d and not "video" in d and "audio" in d:
                 input_dict["value"] = input_dict["value"].replace("<image>", "<audio>")
 
-    def load_raw_data(self, ):
+    def load_raw_data(self, ) -> None:
         rank0_print(f"Loading datasets: {self.dataset_list}")
         list_data_dict = []
 
@@ -261,12 +261,16 @@ class MMQwenDatasetBase:
 
         self.list_data_dict = list_data_dict
         self.replace_image_token()
-        rank0_print(f"Total training samples: {len(self.list_data_dict)}")
+        rank0_print(f"Total samples: {len(self.list_data_dict)}")
 
     def _get_item(self, i) -> dict[str, Any]:
         source = self.list_data_dict[i]
 
-        data_dict = {"prompt": source["conversations"][:-1], "ref": source["conversations"][-1]["value"]}
+        data_dict = {
+            # "index": i,
+            "prompt": source["conversations"][:-1],
+            "ref": source["conversations"][-1]["value"],
+        }
 
         # load multimodal data
         mm_data = self.load_multimodal_data(source)
@@ -279,7 +283,7 @@ class MMQwenDatasetBase:
 
         return data_dict
 
-    def __getitem__(self, i) -> dict[str, torch.Tensor]:
+    def __getitem__(self, i) -> dict[str, Any]:
         try:
             sample = self._get_item(i)
         except Exception as e:
@@ -299,7 +303,7 @@ class MMQwenDatasetBase:
     def build_feat_id_label(self, convs: list[dict[str, str]], mm_data: dict[str, Any], source: dict) -> dict[str, Any]:
         raise NotImplementedError
 
-    def build_conversation(self, sources: list[dict]):
+    def build_conversation(self, sources: list[dict]) -> list[dict]:
         if self.model_type == "qwen2.5omni":
             if sources[0][0]["from"] == "system":
                 conversations = []
@@ -371,7 +375,7 @@ class MMQwenDatasetBase:
     def build_label(
         self,
         text: str,
-    ):
+    ) -> torch.LongTensor:
         if self.model_type == "qwen2.5omni" or self.model_type == "qwen2audio":
             all_convs = text.split("<|im_start|>")
             labels = []
@@ -399,7 +403,7 @@ class AudioProcessingMixin:
         self,
         audio_source: str,
         sample_rate: int,
-    ):
+    ) -> np.ndarray:
         """
         is ffmpeg processing really needed? we can use torchaudio for all cases
         """
@@ -416,7 +420,7 @@ class AudioProcessingMixin:
         processor: Qwen2AudioProcessor | WhisperFeatureExtractor,
         audio_source: str | list | None = None,
         audio_wav: np.ndarray | None = None
-    ):
+    ) -> tuple[list | None, list | None]:
         if model_type == "qwen2.5vl":
             audio_kwargs = {"sampling_rate": 16000, "padding": "max_length", "return_attention_mask": False}
         elif model_type == "qwen2.5omni":
@@ -510,7 +514,7 @@ class AudioDataset(MMQwenDatasetBase, AudioProcessingMixin):
 
     processor: Qwen2AudioProcessor | Qwen2_5OmniProcessor | WhisperFeatureExtractor
 
-    def __post_init__(self, ):
+    def __post_init__(self, ) -> None:
 
         assert self.stage in ("training", "inference")
 
@@ -528,10 +532,10 @@ class AudioDataset(MMQwenDatasetBase, AudioProcessingMixin):
 
         self.load_raw_data()
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.list_data_dict)
 
-    def load_multimodal_data(self, source: dict):
+    def load_multimodal_data(self, source: dict) -> dict[str, Any]:
         if isinstance(self.processor, Qwen2_5OmniProcessor):
             processor = self.processor.feature_extractor
         else:
@@ -545,7 +549,7 @@ class AudioDataset(MMQwenDatasetBase, AudioProcessingMixin):
         text: str,
         audio: np.ndarray | None,
         audio_lengths,
-    ):
+    ) -> tuple[str, dict[str, torch.Tensor]]:
         if self.model_type == "qwen2.5omni":
             text = self.processor.replace_multimodal_special_tokens(
                 text,
@@ -565,7 +569,7 @@ class AudioDataset(MMQwenDatasetBase, AudioProcessingMixin):
             text = self.tokenizer.decode(feat_token_dict["input_ids"][0])
         return text, feat_token_dict
 
-    def update_mm_feature(self, data_dict: dict[str, Any], mm_data: dict[str, Any]):
+    def update_mm_feature(self, data_dict: dict[str, Any], mm_data: dict[str, Any]) -> None:
         if self.model_type == "qwen2.5omni":
             data_dict.update({
                 "pixel_values_videos": None,
@@ -585,7 +589,7 @@ class AudioDataset(MMQwenDatasetBase, AudioProcessingMixin):
                 "feature_attention_mask": mm_data["feature_attention_mask"][0],
             })
 
-    def build_feat_id_label(self, convs: list[dict[str, str]], mm_data: dict[str, Any], source: dict):
+    def build_feat_id_label(self, convs: list[dict[str, str]], mm_data: dict[str, Any], source: dict) -> dict[str, Any]:
         res = {}
         if self.model_type == "qwen2.5omni":
             conversations = self.build_conversation(convs)
@@ -600,7 +604,6 @@ class AudioDataset(MMQwenDatasetBase, AudioProcessingMixin):
             res.update({
                 "input_ids": feat_token_dict["input_ids"][0],
                 "attention_mask": feat_token_dict["attention_mask"][0],
-                # "keywords": keywords,
             })
 
             if self.stage == "inference":
@@ -709,7 +712,7 @@ class AudioDataset(MMQwenDatasetBase, AudioProcessingMixin):
 
         return res
 
-    def _get_item(self, i):
+    def _get_item(self, i) -> dict[str, Any]:
         data_dict = super()._get_item(i)
         data_dict["audio"] = self.list_data_dict[i]["audio"]
         return data_dict
@@ -733,7 +736,7 @@ class AudioSpoofingDataset(AudioDataset):
                 text += f" The influence is: {item['semantic_influence']}."
             return text
 
-    def transform_json_data(self, convs: dict[str, str]):
+    def transform_json_data(self, convs: dict[str, str]) -> None:
         if self.data_format != "json":
             for conv in convs:
                 if conv["from"] == "gpt":
@@ -756,7 +759,7 @@ class AudioSpoofingDataset(AudioDataset):
 class AudioSpoofingWithEmbeddingDataset(AudioSpoofingDataset):
     embedding_dir: str
 
-    def load_raw_data(self, ):
+    def load_raw_data(self, ) -> None:
         rank0_print(f"Loading datasets: {self.dataset_list}")
         list_data_dict = []
 
@@ -779,18 +782,42 @@ class AudioSpoofingWithEmbeddingDataset(AudioSpoofingDataset):
         self.replace_image_token()
         rank0_print(f"Total training samples: {len(self.list_data_dict)}")
 
-    def load_multimodal_data(self, source):
+    def tokenize_text_after_chat_template(
+        self,
+        text: str,
+        audio: np.ndarray | None,
+        audio_lengths,
+    ) -> tuple[str, dict[str, torch.Tensor]]:
+        if self.model_type == "qwen2.5omni":
+            text = self.processor.replace_multimodal_special_tokens(
+                text,
+                iter(audio_lengths[0] + 1),  # insert spoof embedding
+                iter([]),
+                iter([]),
+                iter([]),
+                use_audio_in_video=True,
+                position_id_per_seconds=25,
+                seconds_per_chunk=None,
+            )
+            assert len(text) == 1
+            feat_token_dict = self.tokenizer(text, padding=True, padding_side="left", return_tensors="pt")
+            text = text[0]
+        else:
+            raise NotImplementedError
+        return text, feat_token_dict
+
+    def load_multimodal_data(self, source) -> dict[str, Any]:
         mm_data = super().load_multimodal_data(source)
         embed_file = Path(self.embedding_dir) / f"{source['embedding_file']}.h5"
         with h5py.File(embed_file, "r") as hf:
             embedding = hf[Path(source["audio"]).name][()]
             embedding = np.array(embedding, dtype=np.float32)
-        mm_data["spoof_embed"] = embedding
+        mm_data["spoof_embeds"] = embedding
         return mm_data
 
-    def update_mm_feature(self, data_dict, mm_data):
+    def update_mm_feature(self, data_dict, mm_data) -> None:
         super().update_mm_feature(data_dict, mm_data)
-        data_dict["spoof_embed"] = mm_data["spoof_embed"]
+        data_dict["spoof_embeds"] = mm_data["spoof_embeds"]
 
 
 @dataclass(kw_only=True)
@@ -803,7 +830,7 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
 
     video_args: dict[str, Any]
 
-    def __post_init__(self, ):
+    def __post_init__(self, ) -> None:
         super(AudioVideoDataset, self).__post_init__()
 
         self.video_max_total_pixels = self.video_args.get("max_total_pixels", 1664 * 28 * 28)
@@ -830,7 +857,7 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
         self.load_raw_data()
 
     @property
-    def lengths(self):
+    def lengths(self) -> list[int]:
         length_list = []
         for sample in self.list_data_dict:
             img_tokens = 128 if "image" in sample else 0
@@ -838,7 +865,7 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
         return length_list
 
     @property
-    def modality_lengths(self):
+    def modality_lengths(self) -> list[int]:
         length_list = []
         for sample in self.list_data_dict:
             cur_len = sum(len(conv["value"].split()) for conv in sample["conversations"])
@@ -847,7 +874,7 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
         return length_list
 
     @property
-    def pre_calculated_length(self):
+    def pre_calculated_length(self) -> np.ndarray:
         if "num_tokens" in self.list_data_dict[0]:
             length_list = [sample["num_tokens"] for sample in self.list_data_dict]
             return np.array(length_list)
@@ -859,7 +886,7 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
         self,
         audio_source: str,
         sample_rate: int,
-    ):
+    ) -> np.ndarray:
         """
         is ffmpeg processing really needed? we can use torchaudio for all cases
         """
@@ -983,7 +1010,7 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
         second_per_grid_ts,
         audio: np.ndarray | None,
         audio_lengths,
-    ):
+    ) -> tuple[str, dict[str, torch.Tensor]]:
         if self.model_type == "qwen2.5omni":
             text = self.omni_processor.replace_multimodal_special_tokens(
                 text,
@@ -1015,7 +1042,7 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
         })
         return data_dict
 
-    def load_multimodal_data(self, source: dict):
+    def load_multimodal_data(self, source: dict) -> dict[str, Any]:
         audio, audio_lengths, image, image_grid_thw, image_grid_thw_merged,  video, video_grid_thw, \
             video_grid_thw_merged, second_per_grid_ts = [None] * 9
 
@@ -1046,7 +1073,7 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
             "second_per_grid_ts": second_per_grid_ts,
         }
 
-    def update_mm_feature(self, data_dict: dict[str, Any], mm_data: dict[str, Any]):
+    def update_mm_feature(self, data_dict: dict[str, Any], mm_data: dict[str, Any]) -> None:
         if self.model_type == "qwen2.5omni":
             data_dict.update({
                 "pixel_values_videos":
@@ -1083,7 +1110,7 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
                 "audio_lengths": mm_data["audio_lengths"],
             })
 
-    def build_feat_id_label(self, convs: list[dict[str, str]], mm_data: dict[str, Any], source: dict):
+    def build_feat_id_label(self, convs: list[dict[str, str]], mm_data: dict[str, Any], source: dict) -> dict[str, Any]:
         res = {}
         if self.model_type == "qwen2.5omni":
             conversations = self.build_conversation(convs)
@@ -1226,128 +1253,19 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
         return res
 
 
-def pad_and_cat(tensor_list):
-    max_length = max(tensor.shape[2] for tensor in tensor_list)
-
-    padded_tensors = []
-    for tensor in tensor_list:
-        pad_length = max_length - tensor.shape[2]
-        padded_tensor = torch.nn.functional.pad(tensor, (0, pad_length), "constant", 1)
-        padded_tensors.append(padded_tensor)
-
-    stacked_tensor = torch.cat(padded_tensors, dim=1)
-
-    return stacked_tensor
-
-
-@dataclass
-class QwenVLDPODataCollator(object):
-    """Collate examples for supervised fine-tuning."""
-
-    tokenizer: transformers.PreTrainedTokenizer
-
-    def process_ids(self, input_ids, labels, position_ids):
-        input_ids = [ids.squeeze(0) for ids in input_ids]
-        labels = [ids.squeeze(0) for ids in labels]
-        input_ids = torch.nn.utils.rnn.pad_sequence(
-            input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
-        )
-        labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
-        position_ids = pad_and_cat(position_ids)
-        input_ids = input_ids[:, :self.tokenizer.model_max_length]
-        labels = labels[:, :self.tokenizer.model_max_length]
-        position_ids = position_ids[:, :self.tokenizer.model_max_length]
-        attention_mask = input_ids.ne(self.tokenizer.pad_token_id)
-        return input_ids, labels, position_ids, attention_mask
-
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        input_ids, labels, position_ids = tuple([instance[key] for instance in instances]
-                                                for key in ("input_ids", "labels", "position_ids"))
-        input_ids, labels, position_ids, attention_mask = self.process_ids(input_ids, labels, position_ids)
-        chosen_ids, chosen_labels, chosen_position_ids = tuple(
-            [instance[key] for instance in instances] for key in ("chosen_ids", "chosen_labels", "chosen_position_ids")
-        )
-        if chosen_ids[0] is not None:
-            chosen_ids, chosen_labels, chosen_position_ids, chosen_attention_mask = self.process_ids(
-                chosen_ids, chosen_labels, chosen_position_ids
-            )
-        else:
-            chosen_ids, chosen_labels, chosen_position_ids, chosen_attention_mask = None, None, None, None
-        reject_ids, reject_labels, reject_position_ids = tuple(
-            [instance[key] for instance in instances] for key in ("reject_ids", "reject_labels", "reject_position_ids")
-        )
-        if reject_ids[0] is not None:
-            reject_ids, reject_labels, reject_position_ids, reject_attention_mask = self.process_ids(
-                reject_ids, reject_labels, reject_position_ids
-            )
-        else:
-            reject_ids, reject_labels, reject_position_ids, reject_attention_mask = None, None, None, None
-        train_type = [instance["train_type"] for instance in instances][0]
-        batch = dict(
-            input_ids=input_ids,
-            labels=labels,
-            position_ids=position_ids,
-            chosen_ids=chosen_ids,
-            chosen_labels=chosen_labels,
-            chosen_position_ids=chosen_position_ids,
-            reject_ids=reject_ids,
-            reject_labels=reject_labels,
-            reject_position_ids=reject_position_ids,
-            attention_mask=attention_mask,
-            chosen_attention_mask=chosen_attention_mask,
-            reject_attention_mask=reject_attention_mask,
-            train_type=train_type,
-        )
-        images = list(instance["pixel_values"] for instance in instances if "pixel_values" in instance)
-        videos = list(instance["pixel_values_videos"] for instance in instances if "pixel_values_videos" in instance)
-        audios = list(instance["audio_feature"] for instance in instances if instance["audio_feature"] is not None)
-        if len(images) != 0:
-            concat_images = torch.cat([image for image in images], dim=0)
-            grid_thw = [instance["image_grid_thw"] for instance in instances if "image_grid_thw" in instance]
-            grid_thw = torch.cat(grid_thw, dim=0)
-        else:
-            concat_images = None
-            grid_thw = None
-
-        if len(videos) != 0:
-            concat_videos = torch.cat([video for video in videos], dim=0)
-            video_grid_thw = [instance["video_grid_thw"] for instance in instances if "video_grid_thw" in instance]
-            video_grid_thw = torch.cat(video_grid_thw, dim=0)
-        else:
-            concat_videos = None
-            video_grid_thw = None
-
-        if len(audios) != 0:
-            concat_audios = torch.cat([audio for audio in audios], dim=0)
-            audio_lengths = [instance["audio_lengths"] for instance in instances if "audio_lengths" in instance]
-            audio_lengths = [l for length in audio_lengths for l in length]
-        else:
-            concat_audios = None
-            audio_lengths = None
-
-        batch["pixel_values"] = concat_images
-        batch["image_grid_thw"] = grid_thw
-        batch["pixel_values_videos"] = concat_videos
-        batch["video_grid_thw"] = video_grid_thw
-        batch["audio_feature"] = concat_audios
-        batch["audio_lengths"] = audio_lengths
-        return batch
-
-
 @dataclass
 class OmniCollator:
     padding_config: dict[str, int] = field(default_factory=lambda: {"input_ids": PAD_TOKEN_ID, "labels": IGNORE_INDEX})
     concat_keys: list[str] = field(
-        default_factory=lambda:
-        ["pixel_values_videos", "video_grid_thw", "video_second_per_grid", "input_features", "feature_attention_mask"]
+        default_factory=lambda: ["pixel_values_videos", "video_grid_thw", "input_features", "feature_attention_mask"]
     )
     torchify_keys: list[str] = field(default_factory=lambda: ["video_second_per_grid"])
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         default = {"input_ids": PAD_TOKEN_ID, "labels": IGNORE_INDEX}
         self.padding_config = {**default, **self.padding_config}
 
-    def __call__(self, instances: list[dict]) -> dict[str, Any]:
+    def __call__(self, instances: list[dict[str, Any]]) -> dict[str, Sequence[Any] | None]:
         collate_samples: dict[str, Any] = {k: [dic[k] for dic in instances] for k in instances[0]}
         batch_keys = list(collate_samples.keys())
 
@@ -1376,149 +1294,6 @@ class OmniCollator:
         return collate_samples
 
 
-@dataclass
-class DataCollatorForSupervisedDataset(object):
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
-        input_ids = [ids.squeeze(0) for ids in input_ids]
-        labels = [ids.squeeze(0) for ids in labels]
-        input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=PAD_TOKEN_ID)
-        labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
-        attention_mask = input_ids.ne(PAD_TOKEN_ID).to(torch.int64)
-
-        videos = [
-            instance["pixel_values_videos"] for instance in instances
-            if "pixel_values_videos" in instance and instance["pixel_values_videos"] is not None
-        ]
-        if len(videos) != 0:
-            concat_videos = torch.cat([video for video in videos], dim=0)
-            concat_video_grid_thw = torch.cat([
-                instance["video_grid_thw"]
-                for instance in instances if "video_grid_thw" in instance and instance["video_grid_thw"] is not None
-            ],
-                                              dim=0)
-            video_second_per_grid = torch.tensor([
-                instance["video_second_per_grid"] for instance in instances
-                if "video_second_per_grid" in instance and instance["video_second_per_grid"] is not None
-            ],
-                                                 dtype=torch.float32)
-        else:
-            concat_videos = None
-            concat_video_grid_thw = None
-            video_second_per_grid = None
-
-        audios = [
-            instance["input_features"]
-            for instance in instances if "input_features" in instance and instance["input_features"] is not None
-        ]
-        if len(audios) != 0:
-            concat_audios = torch.cat([audio for audio in audios], dim=0)
-            concat_feature_attention_mask = torch.cat(
-                [
-                    instance["feature_attention_mask"] for instance in instances
-                    if "feature_attention_mask" in instance and instance["feature_attention_mask"] is not None
-                ],
-                dim=0,
-            )
-        else:
-            concat_audios = None
-            concat_feature_attention_mask = None
-
-        keywords = [instance["keywords"] for instance in instances]
-
-        batch = {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
-            "pixel_values_videos": concat_videos,
-            "video_grid_thw": concat_video_grid_thw,
-            "video_second_per_grid": video_second_per_grid,
-            "input_features": concat_audios,
-            "feature_attention_mask": concat_feature_attention_mask,
-            "labels": labels,
-            "use_audio_in_video": concat_video_grid_thw is not None and concat_audios is not None,
-            "keywords": keywords,
-            "train_type": "sft",
-        }
-
-        return batch
-
-
-@dataclass
-class FlattenedDataCollatorForSupervisedDataset(DataCollatorForSupervisedDataset):
-    """Collate examples into packed sequence with multi-modal support."""
-
-    tokenizer: transformers.PreTrainedTokenizer
-
-    def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        input_ids, labels, position_ids, attention_mask = tuple(
-            [instance[key] for instance in instances]
-            for key in ("input_ids", "labels", "position_ids", "attention_mask")
-        )
-        attention_mask = list(
-            itertools.chain(*(instance["attention_mask"] for instance in instances if "attention_mask" in instance))
-        )
-        seq_lens = torch.tensor([0] + attention_mask, dtype=torch.int32)
-        cumsum_seq_lens = torch.cumsum(seq_lens, dim=0, dtype=torch.int32)
-        input_ids = torch.cat(input_ids, dim=1)
-        labels = torch.cat(labels, dim=1)
-        position_ids = torch.cat(position_ids, dim=2)
-
-        batch = dict(
-            input_ids=input_ids,
-            labels=labels,
-            attention_mask=cumsum_seq_lens,
-            position_ids=position_ids,
-        )
-        images = list(instance["pixel_values"] for instance in instances if "pixel_values" in instance)
-        videos = list(instance["pixel_values_videos"] for instance in instances if "pixel_values_videos" in instance)
-        if len(images) != 0:
-            concat_images = torch.cat([image for image in images], dim=0)
-            grid_thw = [instance["image_grid_thw"] for instance in instances if "image_grid_thw" in instance]
-            grid_thw = torch.cat(grid_thw, dim=0)
-        else:
-            concat_images = None
-            grid_thw = None
-
-        if len(videos) != 0:
-            concat_videos = torch.cat([video for video in videos], dim=0)
-            video_grid_thw = [instance["video_grid_thw"] for instance in instances if "video_grid_thw" in instance]
-            video_grid_thw = torch.cat(video_grid_thw, dim=0)
-        else:
-            concat_videos = None
-            video_grid_thw = None
-
-        batch["pixel_values"] = concat_images
-        batch["image_grid_thw"] = grid_thw
-        batch["pixel_values_videos"] = concat_videos
-        batch["video_grid_thw"] = video_grid_thw
-
-        return batch
-
-
-# def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, data_args: DataArguments) -> Dict:
-#     """Make dataset and collator for supervised fine-tuning."""
-#     train_dataset = LazySupervisedDataset(
-#         tokenizer=tokenizer,
-#         dataset_list=data_args.train_datasets,
-#         data_args=data_args,
-#     )
-#     if data_args.eval_datasets is not None:
-#         eval_dataset = LazySupervisedDataset(
-#             tokenizer=tokenizer,
-#             dataset_list=data_args.eval_datasets,
-#             data_args=data_args,
-#             dataset_max_samples=data_args.max_val_samples,
-#         )
-#     else:
-#         eval_dataset = None
-#     if data_args.model_type == "qwen2.5vl":
-#         data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
-#     elif data_args.model_type == "qwen2.5omni":
-#         data_collator = DataCollatorForOmniDataset()
-#     elif data_args.model_type == "qwen2audio":
-#         data_collator = DataCollatorForAudioDataset()
-#     return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
-
 if __name__ == "__main__":
     from omegaconf import OmegaConf
     import hydra
@@ -1544,7 +1319,7 @@ embedding_dir: /mnt/shared-storage-user/xuxuenan/workspace/nii_anti_deepfake/emb
 _target_: qwenvl.data.data_qwen.OmniCollator
 torchify_keys:
   - video_second_per_grid
-  - spoof_embed
+  - spoof_embeds
     """
     config = OmegaConf.load(dataset_config_str)
     dataset = hydra.utils.instantiate(config, _convert_='all')

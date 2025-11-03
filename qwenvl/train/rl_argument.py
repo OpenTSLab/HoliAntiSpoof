@@ -1,13 +1,7 @@
-from dataclasses import dataclass, field
-
 from trl.trainer.grpo_config import GRPOConfig
-
-from qwenvl.train.argument import TrainingArguments
+from dataclasses import dataclass, field
 
 
 @dataclass
-class GRPOArguments(TrainingArguments, GRPOConfig):
-    use_liger_loss: bool = field(
-        default=True,
-        metadata={"help": "Whether to use the Liger GRPO loss."},
-    )
+class GRPOArguments(GRPOConfig):
+    unused_items_for_generation: list[str] = field(default_factory=list)

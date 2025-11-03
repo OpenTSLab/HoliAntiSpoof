@@ -2,7 +2,7 @@ import torch.nn as nn
 
 MODEL_TO_LORA_EXCLUDE_MODULES = {
     "qwen2.5vl": ["audio.layers"],
-    "qwen2.5omni": ["audio_tower"],
+    "qwen2.5omni": ["audio_tower", "spoof_proj"],
     "qwen2audio": ["audio_tower", "multi_modal_projector"]
 }
 

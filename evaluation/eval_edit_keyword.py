@@ -8,7 +8,7 @@ import hydra
 from tqdm import tqdm
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="eval_composite")
+@hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_composite")
 def main(config):
     files = set()
     output = []

@@ -1,4 +1,4 @@
-from typing import Optional, Union, Any
+from typing import Optional, Union, Any, Callable
 from collections import defaultdict
 from contextlib import nullcontext
 import warnings
@@ -21,25 +21,22 @@ from transformers import (
 from transformers.data.data_collator import DataCollator
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.trainer import TrainerCallback
-from transformers.trainer_utils import set_seed
+from transformers.trainer_utils import set_seed, seed_worker, EvalPrediction
 from transformers.utils import (
     is_datasets_available,
     is_torch_xla_available,
+    ModelOutput,
 )
 from accelerate.utils import (
-    DistributedType,
     set_seed,
     broadcast_object_list,
     gather,
     gather_object,
-    DeepSpeedSchedulerWrapper,
 )
 
 from trl.trainer.grpo_trainer import (
     RewardFunc,
     is_peft_model,
-    split_tensor_dict,
-    shuffle_tensor_dict,
     nanstd,
     nanmin,
     nanmax,
@@ -51,13 +48,10 @@ from trl.trainer.utils import selective_log_softmax, pad
 from trl.models import prepare_deepspeed, prepare_fsdp, unwrap_model_for_generation
 from trl.trainer.callbacks import SyncRefModelCallback
 from trl.data_utils import apply_chat_template, is_conversational
+# from trl.trainer.grpo_trainer import GRPOTrainer
 
 from qwenvl.train.trainer import QwenVLTrainer
-from qwenvl.model.qwen2_5_vl.modeling_qwen2_5_vl import (
-    Qwen2_5_VisionTransformerPretrainedModel,
-    Qwen2_5_VLModel,
-)
-from qwenvl.train.argument import GRPOArguments
+from qwenvl.train.rl_argument import GRPOArguments
 from qwenvl.data.data_qwen import IGNORE_INDEX
 
 if is_liger_kernel_available():
@@ -133,10 +127,10 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
         processing_class: PreTrainedTokenizerBase = None,
         reward_processing_classes: PreTrainedTokenizerBase | list[PreTrainedTokenizerBase] | None = None,
         ref_model: PreTrainedModel | None = None,
+        compute_metrics: Optional[Callable[[EvalPrediction], dict]] = None,
         callbacks: list[TrainerCallback] = None,
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
     ):
-        self.dpo_loss_fct = LigerFusedLinearDPOLoss()
 
         model_init_kwargs = args.model_init_kwargs or {}
 
@@ -236,6 +230,7 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
             processing_class=processing_class,
             callbacks=callbacks,
             optimizers=optimizers,
+            compute_metrics=compute_metrics,
         )
 
         # Reference model
@@ -482,17 +477,18 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
             mini_repeat_count=self.num_generations,
             batch_size=self.args.generation_batch_size // self.num_generations,
             repeat_count=self.num_iterations * self.args.steps_per_generation,
+            # steps_per_generation: gradient accumulation steps
             shuffle=self.shuffle_dataset,
             seed=self.args.seed,
         )
 
-    def _get_eval_sampler(self, eval_dataset) -> Sampler:
-        # See _get_train_sampler for an explanation of the sampler.
-        return RepeatSampler(
-            data_source=eval_dataset,
-            mini_repeat_count=self.num_generations,
-            seed=self.args.seed,
-        )
+    # def _get_eval_sampler(self, eval_dataset) -> Sampler:
+    #     # See _get_train_sampler for an explanation of the sampler.
+    #     return RepeatSampler(
+    #         data_source=eval_dataset,
+    #         mini_repeat_count=self.num_generations,
+    #         seed=self.args.seed,
+    #     )
 
     def _get_last_hidden_state(
         self,
@@ -582,8 +578,10 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
         device = self.accelerator.device
         mode = "train" if self.model.training else "eval"
         generation_inputs = deepcopy(inputs)
-        generation_inputs.pop("train_type")
-        generation_inputs.pop("keywords")
+
+        for key in self.args.unused_items_for_generation:
+            generation_inputs.pop(key, None)
+
         # the first index that label is not IGNORE_INDEX
         input_lengths = (inputs["labels"] != IGNORE_INDEX).long().argmax(dim=1)
         trunc_attention_mask = generation_inputs["attention_mask"][:, :input_lengths.max()].fill_(0)
@@ -837,6 +835,7 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
             "advantages": advantages,
             "old_per_token_logps": old_per_token_logps,
             "ref_per_token_logps": ref_per_token_logps,
+            "rewards": rewards[process_slice],
         }
 
     def _calculate_rewards(self, inputs, prompts, completions, completion_ids_list, labels_text):
@@ -954,6 +953,9 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
+
+        if not self.model.training:  # eval
+            return gather(inputs["rewards"]).mean()
 
         per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep, non_prompt_inputs)
 

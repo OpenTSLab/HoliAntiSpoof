@@ -24,3 +24,13 @@ val:
   data_format: ${global.data_format}
   dataset_max_samples: 1000
   embedding_dir: ${..embedding_dir}
+
+test:
+  _target_: qwenvl.data.data_qwen.AudioSpoofingWithEmbeddingDataset
+  stage: inference
+  model_type: ${global.model_type}
+  dataset_list:
+    - DUMMY_DATA.json
+  processor: ${global.processor}
+  data_format: ${global.data_format}
+  embedding_dir: ${..embedding_dir}

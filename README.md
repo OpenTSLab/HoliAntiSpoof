@@ -27,9 +27,17 @@
 ```bash
 torchrun xxx \
   qwenvl/train/train_qwen.py \
+  --config_file configs/train.yaml
+```
+
+Training on ASVSpoof2019 and using SpoofingWithEmbeddingDataset:
+```bash
+torchrun xxx \
+  qwenvl/train/train_qwen.py \
   --config_file configs/train.yaml \
   --options \
-
+  data/datasets@data_dict.data_lists=asvspoof2019 \
+  data@data_dict=spoofing_with_embed
 ```
 
 ## Inference

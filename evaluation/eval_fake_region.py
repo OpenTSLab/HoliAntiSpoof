@@ -8,7 +8,7 @@ import pandas as pd
 from evaluation.metrics import calculate_segment_f1
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="eval_fake_region")
+@hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_fake_region")
 def main(config):
 
     is_partial_only = config.get("is_partial_only", True)
@@ -95,7 +95,7 @@ def main(config):
                 # Store results (including both real and fake audio)
                 pred_segments[file_id] = pred_fake_region
 
-            except (JSONDecodeError, KeyError) as e:
+            except (JSONDecodeError, KeyError, TypeError) as e:
                 print(f"Error processing item {idx}: {e}")
                 pred_segments[file_id] = []
         else:

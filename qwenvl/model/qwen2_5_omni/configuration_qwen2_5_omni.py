@@ -24,7 +24,6 @@ from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_rope_utils import rope_config_validation
 from transformers.utils import logging
 
-
 logger = logging.get_logger(__name__)
 
 
@@ -514,6 +513,42 @@ class Qwen2_5OmniThinkerConfig(PretrainedConfig):
         self.text_config = text_config
 
         super().__init__(**kwargs)
+
+
+class Qwen2_5OmniThinkerWithSpoofConfig(Qwen2_5OmniThinkerConfig):
+    def __init__(
+        self,
+        spoof_embed_size=1024,
+        audio_config=None,
+        vision_config=None,
+        text_config=None,
+        audio_token_index=151646,
+        image_token_index=151655,
+        video_token_index=151656,
+        position_id_per_seconds=25,
+        seconds_per_chunk=2,
+        audio_start_token_id=151647,
+        audio_end_token_id=151648,
+        user_token_id=872,
+        initializer_range=0.02,
+        **kwargs
+    ):
+        super().__init__(
+            audio_config,
+            vision_config,
+            text_config,
+            audio_token_index,
+            image_token_index,
+            video_token_index,
+            position_id_per_seconds,
+            seconds_per_chunk,
+            audio_start_token_id,
+            audio_end_token_id,
+            user_token_id,
+            initializer_range,
+            **kwargs,
+        )
+        self.spoof_embed_size = spoof_embed_size
 
 
 class Qwen2_5OmniTalkerConfig(PretrainedConfig):

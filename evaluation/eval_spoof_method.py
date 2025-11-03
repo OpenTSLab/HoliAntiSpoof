@@ -29,7 +29,7 @@ coarse_spoof_method_mapping = {
 }
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="eval_composite")
+@hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_composite")
 def main(config):
 
     is_coarse = config.get("is_coarse", False)
