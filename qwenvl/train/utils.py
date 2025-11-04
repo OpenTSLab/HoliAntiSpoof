@@ -145,69 +145,6 @@ def apply_liger_kernel_to_qwen2_5_vl(
         modeling_qwen2_5_omni.Qwen2MLP = LigerSwiGLUMLP
 
 
-# def apply_or_load_lora_safely(
-#     model: ModelProtocol, lora_config: LoraConfig | None = None, lora_ckpt: str | None = None
-# ) -> ModelProtocol:
-#     # TODO use `modules_to_save` instead of del and assign to save modules into "adapter_model.safetensors"
-#     """
-#     A generic helper that temporarily removes certain submodules before LoRA injection,
-#     then restores them afterward.
-
-#     This is useful when you want to exclude specific parts of a model
-#     (e.g., projection layers, towers, etc.) from being wrapped by LoRA.
-
-#     Args:
-#         model:
-#             The base model before LoRA injection.
-#         lora_config:
-#             Configuration used by get_peft_model().
-#         lora_ckpt:
-#             Path to the LoRA checkpoint.
-
-#     Returns:
-#         model: ModelProtocol
-#             The LoRA-injected model with the excluded modules reattached.
-#     """
-#     exclude_attrs = MODEL_TO_LORA_EXCLUDE_MODULES[model.model_type]
-
-#     assert lora_config is not None or lora_ckpt is not None
-
-#     # Step 1. Save excluded modules and temporarily delete them from the model
-#     excluded = {}
-#     for attr_path in exclude_attrs:
-#         try:
-#             parts = attr_path.split('.')
-#             parent = model
-#             for p in parts[:-1]:
-#                 parent = getattr(parent, p)
-#             attr_name = parts[-1]
-
-#             excluded[attr_path] = getattr(parent, attr_name)
-#             delattr(parent, attr_name)
-#         except AttributeError as e:  # if exclude modules not found in model, just skip
-#             rank0_print(
-#                 f"Attribute {attr_path} not found when caching non-LoRA parts with error: {e}, please check whether there are typos"
-#             )
-#             pass
-
-#     # Step 2. Inject LoRA (PEFT) or load LoRA from checkpoint
-#     if lora_config is not None:
-#         model = get_peft_model(model, lora_config)
-#     elif lora_ckpt is not None:
-#         model = PeftModel.from_pretrained(model, lora_ckpt)
-
-#     # Step 3. Restore previously excluded modules
-#     for attr_path, module in excluded.items():
-#         parts = attr_path.split('.')
-#         # After LoRA injection, the actual model is usually under model.model
-#         parent = model.model
-#         for p in parts[:-1]:
-#             parent = getattr(parent, p)
-#         setattr(parent, parts[-1], module)
-
-#     return model
-
-
 def load_non_lora_params_from_ckpt(
     model: PeftModel,
     ckpt_path: str,
@@ -233,13 +170,7 @@ def load_non_lora_params_from_ckpt(
 
 def load_maybe_lora_ckpt(model: ModelProtocol, pretrained_ckpt: str, is_lora: bool) -> ModelProtocol:
     if is_lora:
-        # model = apply_or_load_lora_safely(model, lora_config=None, lora_ckpt=pretrained_ckpt)
         model = PeftModel.from_pretrained(model, pretrained_ckpt)
-
-        # if model.model_type in ["qwen2.5omni", "qwen2audio"]:
-        #     audio_ckpt = list(Path(pretrained_ckpt).glob("global_step*/mp_rank_00_model_states.pt"))[0]
-        #     load_non_lora_params_from_ckpt(model, audio_ckpt, MODEL_TO_LORA_EXCLUDE_MODULES[model.model_type])
-
         model = model.merge_and_unload()
     else:
         ckpt = load_file(Path(pretrained_ckpt) / "model.safetensors")
@@ -388,14 +319,8 @@ def set_lora(model: ModelProtocol, model_cfg: dict) -> ModelProtocol:
     if model.model_type == "qwen2.5vl":
         if trainable_cfg["vision_encoder"]:
             modules_to_save.append("visual")
-        # if trainable_cfg["vision_adapter"]:
-        #     modules_to_save.append("visual.merger")
         if trainable_cfg["audio_encoder"]:
             modules_to_save.append("audio")
-        # if trainable_cfg["audio_adapter"]:
-        #     modules_to_save.append("audio.qformer")
-        #     modules_to_save.append("audio.q_tokens")
-        #     modules_to_save.append("audio.audio_proj")
     elif model.model_type == "qwen2.5omni":
         if trainable_cfg["vision_encoder"]:
             modules_to_save.append("visual")
@@ -403,9 +328,6 @@ def set_lora(model: ModelProtocol, model_cfg: dict) -> ModelProtocol:
             modules_to_save.append("visual.merger")
         if trainable_cfg["audio_encoder"]:
             modules_to_save.append("audio_tower")
-        # if trainable_cfg["audio_adapter"]:
-        #     modules_to_save.append("audio_tower.ln_post")
-        #     modules_to_save.append("audio_tower.proj")
         if hasattr(model, "spoof_proj"):
             modules_to_save.append("spoof_proj")
     elif model.model_type == "qwen2audio":
@@ -415,7 +337,10 @@ def set_lora(model: ModelProtocol, model_cfg: dict) -> ModelProtocol:
             modules_to_save.append("multi_modal_projector")
 
     lora_config: LoraConfig = instantiate(model_cfg["lora_config"], modules_to_save=modules_to_save, _convert_="all")
-    # model = apply_or_load_lora_safely(model, lora_config=lora_config, lora_ckpt=None)
+    if hasattr(model, "peft_config"):
+        del model.peft_config
+    if hasattr(model, "peft_type"):
+        del model.peft_type
     model = get_peft_model(model, lora_config)
 
     for k, v in model.named_parameters():

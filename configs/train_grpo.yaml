@@ -76,7 +76,7 @@ trainer:
   greater_is_better: true
 
   save_strategy: best
-  save_steps: 2000
+  save_steps: 1000
   save_total_limit: 3
 
   logging_steps: 10

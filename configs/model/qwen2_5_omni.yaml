@@ -24,7 +24,7 @@ lora_config:
   lora_dropout: 0.05
   bias: none
   use_dora: true
-  target_modules: "model.layers.(\d+).self_attn.(q|k|v|o)_proj"
+  target_modules: "model.layers.(\\d+).self_attn.(q|k|v|o)_proj"
   task_type: "CAUSAL_LM"
 
 lora_ckpt: Null

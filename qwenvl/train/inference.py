@@ -6,8 +6,7 @@ import json
 import torch
 import transformers
 from omegaconf import OmegaConf
-from hydra import compose, initialize, initialize_config_dir
-from hydra.core.config_store import ConfigStore
+from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP

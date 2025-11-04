@@ -1,10 +1,8 @@
 import argparse
 from pathlib import Path
 import logging
-import json
 from copy import deepcopy
 
-import numpy as np
 import transformers
 import torch.distributed as dist
 from hydra.utils import instantiate
@@ -64,10 +62,6 @@ def train():
     data_collator = instantiate(config["data_collator"], _convert_="all")
 
     model: PreTrainedModel = initialize_model(config["model"], training_args)
-    # if "lora_ckpt" in config["model"] and config["model"]["lora_ckpt"]:
-    #     if rank == 0:
-    #         model.save_pretrained(exp_dir / "base")
-    #     dist.barrier()
 
     model.requires_grad_(False)
     set_model_gradient_checkpointing(model, training_args)
@@ -84,10 +78,6 @@ def train():
     model = set_lora(model, config["model"])
 
     print_trainable_blocks(model)
-
-    # for param in model.parameters():
-    #     if param.requires_grad:
-    #         param.data = param.data.float()
 
     reward_func = instantiate(config["reward_fn"], _convert_="all")
     metric = instantiate(config["metric"], _convert_="all")
