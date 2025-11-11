@@ -723,29 +723,9 @@ class AudioSpoofingDataset(AudioDataset):
 
     data_format: str = "json"
 
-    def json_to_text(self, json_str: str) -> str:
-        item = json.loads(json_str)
-        if item["real_or_fake"] == "real":
-            return "Real."
-        else:
-            fake_region = item["fake_region"]
-            if fake_region == "all":
-                fake_region = "the whole clip"
-            text = f"Fake. The fake region is {fake_region}. The spoofing method is {item['spoof_method']}."
-            if "semantic_influence" in item:
-                text += f" The influence is: {item['semantic_influence']}."
-            return text
-
-    def transform_json_data(self, convs: dict[str, str]) -> None:
-        if self.data_format != "json":
-            for conv in convs:
-                if conv["from"] == "gpt":
-                    conv["value"] = self.json_to_text(conv["value"])
-
     def _get_item(self, i) -> dict[str, Any]:
         # transform json to text
         source: dict[str, Any] = self.list_data_dict[i]
-        self.transform_json_data(source["conversations"])
         data_dict = super()._get_item(i)
         if "keywords" in source:
             keywords = source["keywords"]
@@ -887,21 +867,11 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
         audio_source: str,
         sample_rate: int,
     ) -> np.ndarray:
-        """
-        is ffmpeg processing really needed? we can use torchaudio for all cases
-        """
-        if audio_source.endswith(".mp4"):
-            out, _ = (
-                ffmpeg.input(audio_source).output('pipe:', format='wav', ac=1,
-                                                  ar='16000').run(capture_stdout=True, capture_stderr=True)
-            )
-            audio = np.frombuffer(out, np.int16)
-        else:
-            audio, sr = torchaudio.load(audio_source)
-            if len(audio.shape) == 2:
-                audio = audio[0]
-            audio = torchaudio.functional.resample(audio, sr, sample_rate)
-            audio = audio.numpy()
+        audio, sr = torchaudio.load(audio_source)
+        if len(audio.shape) == 2:
+            audio = audio[0]
+        audio = torchaudio.functional.resample(audio, sr, sample_rate)
+        audio = audio.numpy()
         return audio
 
     def process_image_unified(self, image_file):
@@ -1321,12 +1291,12 @@ torchify_keys:
   - video_second_per_grid
   - spoof_embeds
     """
-    config = OmegaConf.load(dataset_config_str)
+    config = OmegaConf.create(dataset_config_str)
     dataset = hydra.utils.instantiate(config, _convert_='all')
     item = dataset[0]
+    print(item)
 
-    config = OmegaConf.load(collate_config_str)
+    config = OmegaConf.create(collate_config_str)
     collate_fn = hydra.utils.instantiate(config, _convert_='all')
 
     batch = collate_fn([item])
-    breakpoint()

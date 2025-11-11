@@ -10,7 +10,7 @@ parser.add_argument("--config", "-c", required=True)
 
 args = parser.parse_args()
 config = OmegaConf.load(args.config)
-dataset = hydra.utils.instantiate(config, _convert_="all")
+dataset = hydra.utils.instantiate(config["data_dict"]["train"], _convert_="all")
 
 for idx, item in enumerate(tqdm(dataset)):
     if idx >= 1000:

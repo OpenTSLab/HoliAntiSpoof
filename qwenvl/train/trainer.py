@@ -1,25 +1,18 @@
 import os
-import contextlib
 from pathlib import Path
-from functools import partial
-import shutil
 from typing import (
     Dict,
-    List,
     Optional,
-    Sequence,
-    TYPE_CHECKING,
     Any,
-    Callable,
     Optional,
     Union,
 )
 import inspect
 import time
 import warnings
+import json
 
 import numpy as np
-from accelerate import skip_first_batches
 from accelerate.utils import (
     DistributedType,
     DeepSpeedSchedulerWrapper,
@@ -27,11 +20,10 @@ from accelerate.utils import (
 from packaging import version
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 import torch.distributed as dist
 from transformers import Trainer
 from transformers.utils import (
-    is_datasets_available,
     is_accelerate_available,
     is_torch_xla_available,
     is_apex_available,
@@ -41,50 +33,39 @@ from transformers.utils import (
 from transformers.trainer import (
     SCHEDULER_NAME,
     OPTIMIZER_NAME,
-    ALL_LAYERNORM_LAYERS,
-    get_parameter_names,
     has_length,
     is_sagemaker_mp_enabled,
     logger,
 )
-from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
 from transformers.trainer_utils import (
-    PREFIX_CHECKPOINT_DIR,
-    SaveStrategy,
-    HPSearchBackend,
-    TrainOutput,
     EvalLoopOutput,
     EvalPrediction,
     has_length,
-    speed_metrics,
-    seed_worker,
     denumpify_detensorize,
 )
-from transformers.trainer_callback import (ExportableState, TrainerCallback, TrainerState)
-from transformers.integrations.deepspeed import deepspeed_init, deepspeed_load_checkpoint, is_deepspeed_available
+from transformers.integrations.deepspeed import deepspeed_init, is_deepspeed_available
 from transformers.trainer_pt_utils import (
-    DistributedTensorGatherer,
-    SequentialDistributedSampler,
     EvalLoopContainer,
     IterableDatasetShard,
     find_batch_size,
-    get_model_param_count,
     reissue_pt_warnings,
-    nested_concat,
+    remove_dummy_checkpoint,
 )
-from transformers.training_args import ParallelMode, OptimizerNames
-from transformers.modeling_utils import unwrap_model
+from transformers.training_args import OptimizerNames
 from transformers.utils import (
-    is_peft_available,
-    is_datasets_available,
-    is_accelerate_available,
-    is_torch_xla_available,
     is_apex_available,
+    is_sagemaker_mp_enabled,
+    is_torch_hpu_available,
+    is_torch_mlu_available,
+    is_torch_mps_available,
+    is_torch_musa_available,
+    is_torch_npu_available,
+    is_torch_xla_available,
+    is_torch_xpu_available,
     SAFE_WEIGHTS_NAME,
     WEIGHTS_NAME,
 )
 from flash_attn.flash_attn_interface import flash_attn_varlen_func
-from peft import PeftConfig, PeftModel
 
 if is_apex_available():
     from apex import amp
@@ -93,9 +74,6 @@ try:
     from liger_kernel.chunked_loss import LigerFusedLinearGRPOLoss, LigerFusedLinearDPOLoss
 except ImportError:
     raise Exception("liger_kernel is not available")
-
-if is_datasets_available():
-    from datasets import Dataset
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
@@ -110,6 +88,25 @@ if is_sagemaker_mp_enabled():
 else:
     IS_SAGEMAKER_MP_POST_1_10 = False
 
+if is_accelerate_available():
+    from accelerate import __version__ as accelerate_version
+    from accelerate.utils import (
+        DistributedType,
+        save_fsdp_model,
+        save_fsdp_optimizer,
+    )
+
+    DATA_SAMPLERS = [RandomSampler]
+    if version.parse(accelerate_version) > version.parse("1.3.0"):
+        from accelerate.utils import TorchTensorParallelPlugin
+    if version.parse(accelerate_version) > version.parse("0.23.0"):
+        from accelerate.data_loader import SeedableRandomSampler
+
+        DATA_SAMPLERS += [SeedableRandomSampler]
+
+    if is_deepspeed_available():
+        from accelerate.utils import DeepSpeedSchedulerWrapper
+
 TRAINER_STATE_NAME = "trainer_state.json"
 
 
@@ -118,6 +115,10 @@ class QwenVLTrainer(Trainer):
         self.train_type = kwargs.pop("train_type", "sft")
         super().__init__(*args, **kwargs)
         self.dpo_loss_fct = LigerFusedLinearDPOLoss()
+        # Initialize log file path
+        self.train_log_path = Path(self.args.output_dir) / "train.log"
+        # Create parent directory if it doesn't exist
+        self.train_log_path.parent.mkdir(parents=True, exist_ok=True)
 
     def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False):
         """
@@ -585,6 +586,28 @@ class QwenVLTrainer(Trainer):
             self.accelerator.backward(loss, **kwargs)
 
             return loss.detach()
+
+    def log(self, logs: Dict[str, float], start_time: Optional[float] = None) -> None:
+        """
+        Log `logs` on the various objects watching training, and write to train.log file.
+        
+        Override to add file logging functionality. Logs are written to train.log when
+        an epoch ends (indicated by presence of 'epoch' key in logs).
+        """
+        # Call parent's log method first
+        super().log(logs, start_time)
+
+        if "eval_loss" in logs and self.args.should_save:
+            metric_name = self.compute_metrics.name
+            log_entry = {
+                "epoch": f"{logs['epoch']:.3g}",
+                "eval_loss": f"{logs['eval_loss']:.3g}",
+                f"eval_{metric_name}": f"{logs[f'eval_{metric_name}']:.3g}"
+            }
+
+            # Write to file (append mode)
+            with open(self.train_log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None

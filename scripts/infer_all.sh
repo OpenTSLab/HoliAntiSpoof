@@ -4,12 +4,47 @@ export PYTHONPATH=.
 
 N_GPUS=$(python -c "import torch; print(torch.cuda.device_count())")
 
-ckpt_path="experiments/json_format/all_data_wavefake_ljspeech/qwen2_5omni/lora_r_64_alpha_128_audio_encoder_trainable_steps_200k_metric_loss_lr_1e-5/checkpoint-200000"
-output_dir="infer_step200000"
+ckpt_path="experiments/all_data/r_64/infer_step20000"
+output_dir="infer_step20000"
 
 # Parse command line arguments
 __snapshot_before=$(mktemp)
 declare -p > "$__snapshot_before"
+
+# Check for --help option
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    cat << EOF
+Usage: $0 [OPTIONS]
+
+Options:
+  --ckpt_path PATH     Path to checkpoint directory
+                       Default: experiments/all_data/r_64/infer_step20000
+  --output_dir DIR     Output directory name for inference results
+                       Default: infer_step20000
+  --help, -h           Show this help message and exit
+
+Examples:
+  $0 --ckpt_path my_checkpoint --output_dir my_output
+  $0 --ckpt_path experiments/my_model/checkpoint-100000 --output_dir infer_step100000
+
+Description:
+  This script runs inference on multiple datasets:
+  - asvspoof2019
+  - codecfake_ntu
+  - ljspeech
+  - partial_edit
+  - partial_spoof
+  - recent_tts
+  - sine
+  - vctk
+  - wavefake
+
+  The script automatically detects the number of available GPUs and runs
+  distributed inference using torchrun.
+EOF
+    rm -f "$__snapshot_before"
+    exit 0
+fi
 
 while [[ $# -gt 0 ]]; do
     key="$1"

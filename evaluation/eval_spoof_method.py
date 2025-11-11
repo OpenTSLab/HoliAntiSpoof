@@ -7,6 +7,8 @@ from json import JSONDecodeError
 import hydra
 from sklearn.metrics import accuracy_score, f1_score
 
+from evaluation.parsing_utils import SpoofingParser
+
 # spoof_method mapping
 detailed_spoof_method_mapping = {
     "text to speech synthesis": 0,
@@ -35,16 +37,18 @@ def main(config):
     is_coarse = config.get("is_coarse", False)
 
     output = []
-    for pred_file in config.pred_files:
-        output.extend(json.load(open(pred_file, 'r')))
+    for dataset in config.pred_durations:
+        output.extend(json.load(open(dataset.pred, 'r')))
 
     files = set()
 
-    is_json = True
+    data_format = "json"
     try:
         json.loads(output[0]['ref'])
     except JSONDecodeError:
-        is_json = False
+        data_format = "cot"
+
+    text_parser = SpoofingParser(data_format)
 
     gts, preds = [], []
     for idx, item in enumerate(output):
@@ -54,30 +58,14 @@ def main(config):
                 continue
             files.add(file_id)
 
-        if is_json:
-            ref = json.loads(item['ref'])
-            # Only process spoof_method for fake audio
-            if ref["real_or_fake"] == "fake":
-                gts.append(ref["spoof_method"])
-
-                try:
-                    pred = json.loads(item['pred'])
-                    # Check if prediction is fake and contains spoof_method
-                    preds.append(pred["spoof_method"])
-                except (JSONDecodeError, KeyError):
-                    # print(f"Error processing item {idx}: {item['pred']}")
-                    preds.append("failure")
-        else:
-            ref = item["ref"]
-            if ref.split(".")[0].lower() == "fake":
-                gt = re.search(r"The spoofing method is (.+?)\.", ref).group(1)
-                gts.append(gt)
-                match = re.search(r"The spoofing method is (.+?)\.", item['pred'])
-                if match:
-                    pred = match.group(1)
-                else:
-                    pred = "failure"
-                preds.append(pred)
+        gt_data = text_parser(item["ref"])
+        if gt_data["real_or_fake"] != "fake":
+            continue
+        gts.append(gt_data["spoof_method"])
+        pred = text_parser(item["pred"])["spoof_method"]
+        if pred is None:
+            pred = "failure"
+        preds.append(pred)
 
     # Convert to labels
     gt_labels = []

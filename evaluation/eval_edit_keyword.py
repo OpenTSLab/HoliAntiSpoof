@@ -7,13 +7,15 @@ from pprint import pprint
 import hydra
 from tqdm import tqdm
 
+from evaluation.parsing_utils import SpoofingParser
+
 
 @hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_composite")
 def main(config):
     files = set()
     output = []
-    for pred_file in config.pred_files:
-        output.extend(json.load(open(pred_file, 'r')))
+    for dataset in config.pred_durations:
+        output.extend(json.load(open(dataset.pred, 'r')))
 
     file_to_keywords = {}
     with open("data/partial_edit/test.json", "r") as f:
@@ -25,11 +27,13 @@ def main(config):
     keyword_matched = 0
     total_num = 0
 
-    is_json = True
+    data_format = "json"
     try:
         json.loads(output[0]['ref'])
     except JSONDecodeError:
-        is_json = False
+        data_format = "cot"
+
+    text_parser = SpoofingParser(data_format)
 
     for idx, item in enumerate(output):
         if "audio" in item:
@@ -41,29 +45,18 @@ def main(config):
         if item["audio"] not in file_to_keywords:
             continue
 
-        if is_json:
-            if "semantic_influence" not in json.loads(item["ref"]):
-                continue
-        else:
-            if "The influence is: " not in item["ref"]:
-                continue
+        gt_data = text_parser(item["ref"])
+
+        if gt_data["semantic_influence"] is None:
+            continue
+
+        pred_data = text_parser(item["pred"])
+        pred_semantic_influence = pred_data["semantic_influence"]
+        if pred_semantic_influence is None:
+            pred_semantic_influence = ""
 
         keywords = file_to_keywords[item["audio"]]
         total_num += len(keywords)
-        if is_json:
-            try:
-                pred = json.loads(item['pred'])
-                assert "semantic_influence" in pred
-                pred_semantic_influence = pred["semantic_influence"]
-            except (JSONDecodeError, AssertionError):
-                pred_semantic_influence = ""
-        else:
-            match = re.search(r"The influence is: (.+)", item["pred"])
-            if match:
-                pred_semantic_influence = match.group(1)
-            else:
-                pred_semantic_influence = ""
-
         item_matched = 0
         for keyword in keywords:
             if keyword in pred_semantic_influence:

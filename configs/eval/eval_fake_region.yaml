@@ -3,18 +3,15 @@ defaults:
 
 infer_dir: "experiments/all_data/qwen2_5omni/lora_r_64_alpha_128_audio_encoder_trainable_steps_150k_metric_loss_lr_2e-5/infer_step150000"
 
-pred_files:
-  - ${infer_dir}/partial_spoof.json
-  - ${infer_dir}/sine.json
-  - ${infer_dir}/partial_edit.json
+pred_durations:
+  - pred: ${infer_dir}/partial_spoof.json
+    duration: "/mnt/shared-storage-user/xuxuenan/workspace/duplex_training/data/spoofing/partial_spoof/duration.csv"
+  - pred: ${infer_dir}/sine.json
+    duration: "/mnt/shared-storage-user/xuxuenan/workspace/duplex_training/data/spoofing/sine/duration.csv"
+  - pred: ${infer_dir}/partial_edit.json
+    duration: "/mnt/shared-storage-user/xuxuenan/workspace/duplex_training/data/spoofing/partial_edit/duration.csv"
 
 output_file: ${infer_dir}/results/fake_region.txt
-
-duration_files:
-  - "/mnt/shared-storage-user/xuxuenan/workspace/duplex_training/data/spoofing/asvspoof2019/duration.csv"
-  - "/mnt/shared-storage-user/xuxuenan/workspace/duplex_training/data/spoofing/partial_spoof/duration.csv"
-  - "/mnt/shared-storage-user/xuxuenan/workspace/duplex_training/data/spoofing/partial_edit/duration.csv"
-  - "/mnt/shared-storage-user/xuxuenan/workspace/duplex_training/data/spoofing/sine/duration.csv"
 
 hydra:
   output_subdir: null

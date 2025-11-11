@@ -48,7 +48,7 @@ from trl.trainer.utils import selective_log_softmax, pad
 from trl.models import prepare_deepspeed, prepare_fsdp, unwrap_model_for_generation
 from trl.trainer.callbacks import SyncRefModelCallback
 from trl.data_utils import apply_chat_template, is_conversational
-# from trl.trainer.grpo_trainer import GRPOTrainer
+from trl.extras.vllm_client import VLLMClient
 
 from qwenvl.train.trainer import QwenVLTrainer
 from qwenvl.train.rl_argument import GRPOArguments
@@ -588,6 +588,7 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
         trunc_input_ids = torch.zeros_like(inputs["input_ids"]).fill_(self.processing_class.pad_token_id
                                                                      )[:, :input_lengths.max()]
 
+        # left padding to get batch `input_ids` and `attention_mask`
         for i in range(len(generation_inputs["input_ids"])):
             length_i = input_lengths[i]
             trunc_input_ids[i, -length_i:] = inputs["input_ids"][i, :length_i]

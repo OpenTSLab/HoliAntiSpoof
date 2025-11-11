@@ -4,8 +4,8 @@ export PYTHONPATH=.
 
 N_GPUS=$(python -c "import torch; print(torch.cuda.device_count())")
 
-ckpt_path="experiments/all_data/r_64_mms_300m/checkpoint-22000"
-output_dir="infer_step22000"
+ckpt_path="experiments/all_data/r_64/infer_step20000"
+output_dir="infer_step20000"
 
 # Parse command line arguments
 __snapshot_before=$(mktemp)
@@ -18,9 +18,9 @@ Usage: $0 [OPTIONS]
 
 Options:
   --ckpt_path PATH     Path to checkpoint directory
-                       Default: experiments/all_data/r_64_mms_300m/checkpoint-22000
+                       Default: experiments/all_data/r_64/infer_step20000
   --output_dir DIR     Output directory name for inference results
-                       Default: infer_step22000
+                       Default: infer_step20000
   --help, -h           Show this help message and exit
 
 Examples:
@@ -28,7 +28,7 @@ Examples:
   $0 --ckpt_path experiments/my_model/checkpoint-100000 --output_dir infer_step100000
 
 Description:
-  This script runs inference with spoofing embedding on multiple datasets:
+  This script runs inference on multiple datasets:
   - asvspoof2019
   - codecfake_ntu
   - ljspeech
@@ -40,7 +40,7 @@ Description:
   - wavefake
 
   The script automatically detects the number of available GPUs and runs
-  distributed inference using torchrun with spoofing embedding enabled.
+  distributed inference using torchrun.
 EOF
     rm -f "$__snapshot_before"
     exit 0
@@ -71,15 +71,15 @@ rm -f "$__snapshot_before"
 TORCHRUN="/mnt/shared-storage-user/xuxuenan/miniconda3/envs/qwen/bin/torchrun"
 
 datasets=(
-  "asvspoof2019 data/asvspoof2019/eval_2000.json"
-  "codecfake_ntu data/codecfake_ntu/test_2000.json"
-  "ljspeech data/ljspeech/test.json"
-  "partial_edit data/partial_edit/test_2000.json"
-  "partial_spoof data/partial_spoof/eval_2000.json"
-  "recent_tts data/recent_tts/test_2000.json"
-  "sine data/sine/test_1500_no_vocoder.json"
-  "vctk data/vctk/test_2000.json"
-  "wavefake data/wavefake/test.json"
+  "asvspoof2019 data_cot/asvspoof2019/eval_2000.json"
+  "codecfake_ntu data_cot/codecfake_ntu/test_2000.json"
+  "ljspeech data_cot/ljspeech/test.json"
+  "partial_edit data_cot/partial_edit/test_2000.json"
+  "partial_spoof data_cot/partial_spoof/eval_2000.json"
+  "recent_tts data_cot/recent_tts/test_2000.json"
+  "sine data_cot/sine/test_1500_no_vocoder.json"
+  "vctk data_cot/vctk/test_2000.json"
+  "wavefake data_cot/wavefake/test.json"
 )
 
 
@@ -89,12 +89,10 @@ for pair in "${datasets[@]}"; do
     echo "Running inference for dataset: ${dataset_name}"
 
     $TORCHRUN --nproc_per_node=${N_GPUS} --nnodes=${NODE_COUNT} --node_rank=${NODE_RANK} --master_addr=${MASTER_ADDR} \
-        --master_port=23817 \
         qwenvl/train/inference.py \
         -c configs/infer.yaml \
         --options \
         ckpt_dir=$ckpt_path \
-        data@data_dict=spoofing_with_embed \
         data_dict.test.dataset_list.0=${test_file} \
         ++output_fname=$output_dir/${dataset_name}.json \
         ++test_dataloader.batch_size=1
