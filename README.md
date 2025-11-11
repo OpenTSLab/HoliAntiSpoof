@@ -22,6 +22,8 @@
 ]
 ```
 
+For audio-only data, simply skip "video" item and only leave "audio" and "conversations" items in the JSON object.
+
 ## Training
 
 ```bash
@@ -40,8 +42,9 @@ torchrun xxx \
   data@data_dict=spoofing_with_embed
 ```
 
+Arguments after `--options` follow hydra override rules.
+
 ## Inference
-(Not checked yet)
 
 ```bash
 torchrun xxx \
@@ -49,7 +52,11 @@ torchrun xxx \
     -c configs/infer.yaml \
     -ckpt $ckpt_path \
     --options \
-    infer_datasets.0=data/partial_edit/test_2000.json \
-    ++output_fname=$output_dir/partial_edit.json \
-    ++eval_batch_size=1
+    data_dict.test.dataset_list.0=xxxx.json \
+    ++output_fname=xxxx.json \
+    ++test_dataloader.batch_size=1
 ```
+
+Results will be saved to `$ckpt_path/../xxxx.json`.
+
+See scripts in `scripts` for more examples.
