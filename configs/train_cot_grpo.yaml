@@ -46,7 +46,7 @@ model:
   lora_ckpt: experiments/all_data_cot/r_64/checkpoint-12000
 
 # training args
-trainer:
+training_args:
   # deepspeed: scripts/zero/zero0.json # ZeRO stage 0 - 1. bf16, when rewards within a group is the same, advantage=0, loss=0, assertion error from `assert all_groups_norm > 0` 2. fp16: gradient cannot be back-propagated, don't know why
   bf16: true
 
@@ -103,7 +103,9 @@ trainer:
   unused_items_for_generation: ["keywords", "prompt", "ref", "audio", "video", "index"]
   shuffle_dataset: true
   mask_truncated_completions: true
-  
+
+trainer:
+  _target_: qwenvl.train.grpo_trainer.GRPOQwenVLTrainer  
 
 hydra:
   output_subdir: null

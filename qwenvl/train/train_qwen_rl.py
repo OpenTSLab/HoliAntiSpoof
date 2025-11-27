@@ -9,8 +9,9 @@ from hydra.utils import instantiate
 from transformers import PreTrainedModel
 from omegaconf import OmegaConf
 
-from qwenvl.train.rl_argument import GRPOArguments
+from qwenvl.train.rl_argument import GRPOArguments, DPOArguments
 from qwenvl.train.grpo_trainer import GRPOQwenVLTrainer
+from qwenvl.train.dpo_trainer import DPOQwenVLTrainer
 from qwenvl.train.utils import (
     apply_liger_kernel_to_qwen2_5_vl,
     initialize_model,
@@ -34,26 +35,30 @@ def train():
     seed = 2025
     set_seed(seed)
 
-    parser = transformers.HfArgumentParser((GRPOArguments))
-
     config = load_config(args.config_file, args.options)
+    train_type = config["global"]["train_type"]
+    assert train_type in ["dpo", "grpo"], f"train_type {train_type} is not supported in RL training"
 
-    training_args, = parser.parse_dict(config["trainer"], allow_extra_keys=True)
+    if train_type == "grpo":
+        parser = transformers.HfArgumentParser((GRPOArguments))
+    elif train_type == "dpo":
+        parser = transformers.HfArgumentParser((DPOArguments))
+    else:
+        raise ValueError(f"train_type {train_type} is not supported in RL training")
+
+    training_args, = parser.parse_dict(config["training_args"], allow_extra_keys=True)
     # `dist.init_process_group` has been called in the parsing of `training_args`
     if dist.is_initialized():
         rank = dist.get_rank()
     else:
         rank = 0
 
-    exp_dir = Path(config["trainer"]["output_dir"])
+    exp_dir = Path(config["training_args"]["output_dir"])
 
     if rank == 0:
         exp_dir.mkdir(parents=True, exist_ok=True)
         OmegaConf.save(config, exp_dir / "config.yaml")
     dist.barrier()
-
-    train_type = config["global"]["train_type"]
-    assert train_type in ["dpo", "grpo"], f"train_type {train_type} is not supported in RL training"
 
     apply_liger_kernel_to_qwen2_5_vl()
 
@@ -81,17 +86,32 @@ def train():
 
     reward_func = instantiate(config["reward_fn"], _convert_="all")
     metric = instantiate(config["metric"], _convert_="all")
-    trainer = GRPOQwenVLTrainer(
-        model=model,
-        processing_class=train_dataset.tokenizer,
-        args=training_args,
-        reward_funcs=reward_func,
-        compute_metrics=metric,
-        ref_model=ref_model,
-        train_dataset=train_dataset,
-        eval_dataset=val_dataset,
-        data_collator=data_collator,
-    )
+
+    if train_type == "grpo":
+        trainer = GRPOQwenVLTrainer(
+            model=model,
+            processing_class=train_dataset.tokenizer,
+            args=training_args,
+            reward_funcs=reward_func,
+            compute_metrics=metric,
+            ref_model=ref_model,
+            train_dataset=train_dataset,
+            eval_dataset=val_dataset,
+            data_collator=data_collator,
+        )
+    elif train_type == "dpo":
+        trainer = DPOQwenVLTrainer(
+            model=model,
+            processing_class=train_dataset.tokenizer,
+            args=training_args,
+            compute_metrics=metric,
+            ref_model=ref_model,
+            train_dataset=train_dataset,
+            eval_dataset=val_dataset,
+            data_collator=data_collator,
+        )
+    else:
+        raise ValueError(f"train_type {train_type} is not supported in RL training")
 
     if list(exp_dir.glob("checkpoint-*")):
         logging.info("checkpoint found, resume training")

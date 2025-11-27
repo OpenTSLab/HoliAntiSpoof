@@ -35,7 +35,7 @@ class KeywordsStoppingCriteria(StoppingCriteria):
         all_matched = True
         for batch_idx in range(batch_size):
             sample_output_ids = output_ids[batch_idx:batch_idx + 1]
-            offset = min(sample_output_ids.shape[1] - self.start_len, 3)
+            offset = max(sample_output_ids.shape[1] - self.start_len, 3)
             self.keyword_ids = [keyword_id.to(sample_output_ids.device) for keyword_id in self.keyword_ids]
             keyword_matched = False
             for keyword_id in self.keyword_ids:
@@ -43,7 +43,7 @@ class KeywordsStoppingCriteria(StoppingCriteria):
                     keyword_matched = True
                     break
             if not keyword_matched:
-                outputs = self.tokenizer.batch_decode(sample_output_ids[:, -offset:], skip_special_tokens=True)[0]
+                outputs = self.tokenizer.batch_decode(sample_output_ids[:, -offset:], skip_special_tokens=False)[0]
                 for keyword in self.keywords:
                     if keyword in outputs:
                         keyword_matched = True
@@ -341,7 +341,7 @@ def set_lora(model: ModelProtocol, model_cfg: dict) -> ModelProtocol:
         del model.peft_config
     if hasattr(model, "peft_type"):
         del model.peft_type
-    model = get_peft_model(model, lora_config)
+    model = get_peft_model(model, lora_config, **model_cfg.get("get_peft_kwargs", {}))
 
     for k, v in model.named_parameters():
         if "lora" in k:

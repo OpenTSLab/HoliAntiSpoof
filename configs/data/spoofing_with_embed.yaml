@@ -1,5 +1,5 @@
 defaults:
-  - datasets@data_lists: all_data
+  - datasets@data_lists: all_data_json
   - _self_
 
 embedding_dir: /mnt/shared-storage-user/xuxuenan/workspace/nii_anti_deepfake/embeddings/mms_300m
@@ -13,6 +13,7 @@ train:
   processor: ${global.processor}
   data_format: ${global.data_format}
   embedding_dir: ${..embedding_dir}
+  petrel_oss_config: ${global.petrel_oss_config}
 
 val:
   _target_: qwenvl.data.data_qwen.AudioSpoofingWithEmbeddingDataset
@@ -24,6 +25,7 @@ val:
   data_format: ${global.data_format}
   dataset_max_samples: 1000
   embedding_dir: ${..embedding_dir}
+  petrel_oss_config: ${global.petrel_oss_config}
 
 test:
   _target_: qwenvl.data.data_qwen.AudioSpoofingWithEmbeddingDataset
@@ -34,3 +36,4 @@ test:
   processor: ${global.processor}
   data_format: ${global.data_format}
   embedding_dir: ${..embedding_dir}
+  petrel_oss_config: ${global.petrel_oss_config}

@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Spoofing 数据展示</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        line-height: 1.6;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #f5f5f7;
+        color: #1f2933;
+      }
+
+      .container {
+        max-width: 960px;
+        margin: 0 auto;
+        background: #ffffff;
+        border-radius: 16px;
+        padding: 32px;
+        box-shadow: 0 12px 35px rgba(15, 23, 42, 0.12);
+      }
+
+      h1 {
+        margin-top: 0;
+        font-size: 28px;
+      }
+
+      button {
+        padding: 10px 16px;
+        font-size: 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(15, 23, 42, 0.1);
+        cursor: pointer;
+        background: #2563eb;
+        color: #fff;
+      }
+
+      button:hover {
+        background: #1d4ed8;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+
+      .text-input {
+        flex: 1;
+        min-width: 220px;
+        padding: 10px 14px;
+        font-size: 16px;
+        border-radius: 8px;
+        border: 1px solid rgba(15, 23, 42, 0.15);
+        background: #f9fafb;
+        color: #0f172a;
+        box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.08);
+      }
+
+      .text-input:focus {
+        outline: none;
+        border-color: rgba(37, 99, 235, 0.45);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+        background: #fff;
+      }
+
+      .card {
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        background: #fafbff;
+      }
+
+      .label {
+        font-weight: bold;
+        color: #374151;
+      }
+
+      .value {
+        color: #111827;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: rgba(15, 23, 42, 0.03);
+        padding: 12px;
+        border-radius: 8px;
+        margin: 0;
+      }
+
+      footer {
+        margin-top: 32px;
+        color: #6b7280;
+        font-size: 14px;
+      }
+
+      .entry-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+      }
+
+      .entry-card {
+        background: linear-gradient(145deg, #ffffff, #f6f8ff);
+        border: 1px solid rgba(37, 99, 235, 0.08);
+        border-radius: 16px;
+        padding: 24px;
+        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .entry-header {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+
+      .pill-source {
+        background: rgba(37, 99, 235, 0.12);
+        color: #1d4ed8;
+      }
+
+      .pill-status--real {
+        background: rgba(16, 185, 129, 0.16);
+        color: #047857;
+      }
+
+      .pill-status--fake {
+        background: rgba(239, 68, 68, 0.16);
+        color: #b91c1c;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .chip-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip {
+        padding: 6px 10px;
+        border-radius: 10px;
+        background: rgba(15, 23, 42, 0.06);
+        font-size: 14px;
+        color: #1f2933;
+      }
+
+      .timeline-chip {
+        background: rgba(37, 99, 235, 0.12);
+        color: #1e429f;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .text-block {
+        background: rgba(15, 23, 42, 0.03);
+        border-radius: 12px;
+        padding: 12px 14px;
+        line-height: 1.6;
+        color: #1f2937;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      details {
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.02);
+        padding: 12px 16px;
+      }
+
+      details summary {
+        cursor: pointer;
+        font-weight: 600;
+        outline: none;
+      }
+
+      details[open] summary {
+        color: #1d4ed8;
+      }
+
+      .error-card {
+        background: rgba(239, 68, 68, 0.12);
+        border-color: rgba(239, 68, 68, 0.45);
+        color: #991b1b;
+      }
+
+      .meta {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 14px;
+        color: #64748b;
+      }
+
+      @media (max-width: 600px) {
+        body {
+          padding: 12px;
+        }
+
+        .container {
+          padding: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Spoofing 数据随机展示</h1>
+      <p>点击按钮获取一条随机样本，并展示解析出的核心字段。</p>
+
+      <div class="controls">
+        <input
+          id="dataset-path"
+          class="text-input"
+          type="text"
+          placeholder="请输入数据集 JSON 路径，支持相对路径"
+          autocomplete="off"
+        />
+        <button id="fetch-btn">获取随机样本</button>
+      </div>
+
+      <div id="result" hidden>
+        <div class="entry-grid">
+          <div class="entry-card" data-source="pred">
+            <div class="entry-header">
+              <span class="pill pill-source">模型输出（pred）</span>
+              <div class="meta" id="pred-meta"></div>
+            </div>
+            <div class="field">
+              <span class="label">真假判断</span>
+              <span class="pill" id="pred-real-or-fake"></span>
+            </div>
+            <div class="field">
+              <span class="label">Spoof Method</span>
+              <div class="chip-list" id="pred-spoof-method"></div>
+            </div>
+            <div class="field">
+              <span class="label">伪造区间</span>
+              <div class="chip-list" id="pred-fake-region"></div>
+            </div>
+            <div class="field">
+              <span class="label">语义影响</span>
+              <div class="text-block" id="pred-semantic-influence"></div>
+            </div>
+            <details>
+              <summary>原始文本</summary>
+              <pre id="pred-raw-text"></pre>
+            </details>
+          </div>
+
+          <div class="entry-card" data-source="ref">
+            <div class="entry-header">
+              <span class="pill pill-source">参考答案（ref）</span>
+              <div class="meta" id="ref-meta"></div>
+            </div>
+            <div class="field">
+              <span class="label">真假判断</span>
+              <span class="pill" id="ref-real-or-fake"></span>
+            </div>
+            <div class="field">
+              <span class="label">伪造方法</span>
+              <div class="chip-list" id="ref-spoof-method"></div>
+            </div>
+            <div class="field">
+              <span class="label">伪造区间</span>
+              <div class="chip-list" id="ref-fake-region"></div>
+            </div>
+            <div class="field">
+              <span class="label">语义影响</span>
+              <div class="text-block" id="ref-semantic-influence"></div>
+            </div>
+            <details>
+              <summary>原始文本</summary>
+              <pre id="ref-raw-text"></pre>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <div class="card error-card" id="error-card" hidden></div>
+
+    </div>
+
+    <script>
+      const fetchBtn = document.getElementById("fetch-btn");
+      const datasetPathInput = document.getElementById("dataset-path");
+      const resultCard = document.getElementById("result");
+      const errorCard = document.getElementById("error-card");
+
+      const PATH_STORAGE_KEY = "spoofing.dataset.path";
+
+      const getDatasetPath = () => datasetPathInput.value.trim();
+
+      const persistDatasetPath = (value) => {
+        if (value) {
+          localStorage.setItem(PATH_STORAGE_KEY, value);
+        } else {
+          localStorage.removeItem(PATH_STORAGE_KEY);
+        }
+      };
+
+      const initialPath = localStorage.getItem(PATH_STORAGE_KEY);
+      if (initialPath) {
+        datasetPathInput.value = initialPath;
+      }
+
+      datasetPathInput.addEventListener("change", () => {
+        const value = getDatasetPath();
+        persistDatasetPath(value);
+      });
+
+      datasetPathInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !fetchBtn.disabled) {
+          fetchBtn.click();
+        }
+      });
+
+      const renderMeta = (target, extra) => {
+        const audio = extra?.audio;
+        if (!audio) {
+          target.textContent = "";
+          target.hidden = true;
+          return;
+        }
+        target.hidden = false;
+        target.textContent = `Audio: ${audio}`;
+      };
+
+      const renderStatus = (value) => {
+        const label = value ? value.toString().trim().toLowerCase() : "";
+        const isReal = label === "real";
+        const isFake = label === "fake";
+        return {
+          text: isReal ? "Real" : isFake ? "Fake" : value || "未知",
+          className: isReal
+            ? "pill pill-status--real"
+            : isFake
+            ? "pill pill-status--fake"
+            : "pill",
+        };
+      };
+
+      const renderSpoofMethod = (value) => {
+        if (!value) return ["未知"];
+        if (Array.isArray(value) && value.length) {
+          return value.filter(Boolean).map((item) => item.toString());
+        }
+        if (typeof value === "string" || typeof value === "number") {
+          return [value.toString()];
+        }
+        return ["未知"];
+      };
+
+      const renderFakeRegion = (value) => {
+        if (!value) return ["无数据"];
+        if (value === "all") return ["全段"];
+        if (Array.isArray(value)) {
+          const formatted = value
+            .map((pair) =>
+              Array.isArray(pair) && pair.length === 2
+                ? `${pair[0]}s – ${pair[1]}s`
+                : ""
+            )
+            .filter(Boolean)
+            .map((segment) => `${segment}`);
+          return formatted.length ? formatted : ["无数据"];
+        }
+        return [value];
+      };
+
+      const fillChips = (container, values, extraClass = "") => {
+        container.innerHTML = "";
+        values.forEach((item) => {
+          const span = document.createElement("span");
+          span.className = `chip ${extraClass}`.trim();
+          span.textContent = item;
+          container.appendChild(span);
+        });
+      };
+
+      const updateEntryCard = (prefix, entry) => {
+        const parsed = entry?.parsed || {};
+        const status = renderStatus(parsed.real_or_fake);
+        const statusEl = document.getElementById(`${prefix}-real-or-fake`);
+        statusEl.textContent = status.text;
+        statusEl.className = status.className;
+
+        const spoofContainer = document.getElementById(`${prefix}-spoof-method`);
+        fillChips(spoofContainer, renderSpoofMethod(parsed.spoof_method));
+
+        const regionContainer = document.getElementById(`${prefix}-fake-region`);
+        fillChips(regionContainer, renderFakeRegion(parsed.fake_region), "timeline-chip");
+
+        const semanticEl = document.getElementById(`${prefix}-semantic-influence`);
+        semanticEl.textContent = parsed.semantic_influence || "无";
+
+        const rawTextEl = document.getElementById(`${prefix}-raw-text`);
+        rawTextEl.textContent = entry.raw_text || "";
+
+        renderMeta(document.getElementById(`${prefix}-meta`), entry.extra);
+      };
+
+      const updateView = (data) => {
+        updateEntryCard("pred", data.pred);
+        updateEntryCard("ref", data.ref);
+        resultCard.hidden = false;
+        errorCard.hidden = true;
+      };
+
+      const showError = (message) => {
+        resultCard.hidden = true;
+        errorCard.hidden = false;
+        errorCard.textContent = message;
+      };
+
+      fetchBtn.addEventListener("click", async () => {
+        const datasetPath = getDatasetPath();
+        if (!datasetPath) {
+          showError("请先输入数据集路径");
+          datasetPathInput.focus();
+          return;
+        }
+
+        fetchBtn.disabled = true;
+        fetchBtn.textContent = "加载中...";
+        try {
+          persistDatasetPath(datasetPath);
+          const response = await fetch(
+            `/api/random-entry?path=${encodeURIComponent(datasetPath)}`
+          );
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || "请求失败");
+          }
+          const data = await response.json();
+          updateView(data);
+        } catch (err) {
+          showError(err.message);
+        } finally {
+          fetchBtn.disabled = false;
+          fetchBtn.textContent = "获取随机样本";
+        }
+      });
+    </script>
+  </body>
+</html>
+
+

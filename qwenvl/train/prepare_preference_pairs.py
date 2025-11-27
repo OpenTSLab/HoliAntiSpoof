@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 import re
 import json
+import copy
 
 import torch
 import transformers
@@ -20,9 +21,10 @@ from qwenvl.train.utils import (
     apply_liger_kernel_to_qwen2_5_vl,
     initialize_model,
 )
+from qwenvl.train.reward_functions import SpoofReward
 
 
-def inference():
+def run():
     entry_parser = argparse.ArgumentParser()
     entry_parser.add_argument("--config_file", "-c", type=str, required=True, help="path to config file")
     entry_parser.add_argument("--options", nargs="+", default=[], help="Override options in the config file.")
@@ -89,23 +91,39 @@ def inference():
         rank=rank,
         shuffle=False,
     )
+    assert config["test_dataloader"]["batch_size"] == 1, "batch_size must be 1 for preference pairs preparation"
     dataloader = instantiate(config["test_dataloader"], sampler=dist_sampler, _convert_="all")
 
-    result = []
+    reward_func = SpoofReward(data_format=dataset.data_format)
+    num_generations = config["num_generations"]
+    top_p = config.get("top_p", 1.0)
+    temperature = config.get("temperature", 1.0)
+    top_k = config.get("top_k", 50)
+    reward_threshold = config.get("reward_threshold", 0.5)
+    max_new_tokens = config.get("max_new_tokens", 256)
+    output_data = []
+
     for batch_idx, inputs in enumerate(tqdm(dataloader, desc=f"RANK {rank}", disable=rank != 0)):
         if inputs:
             res_i = {
-                "video": inputs.pop("video")[0] if "video" in inputs else None,
-                "image": inputs.pop("image")[0] if "image" in inputs else None,
-                "prompt": inputs.pop("prompt")[0] if "prompt" in inputs else None,
-                "ref": inputs.pop("ref")[0] if "ref" in inputs else None,
-                "audio": inputs.pop("audio")[0] if "audio" in inputs else None,
-                "use_audio": inputs.pop("use_audio")[0] if "use_audio" in inputs else None,
+                "conversations": inputs.pop("prompt")[0],
             }
+            if "video" in inputs:
+                res_i["video"] = inputs.pop("video")[0]
+            if "image" in inputs:
+                res_i["image"] = inputs.pop("image")[0]
+            if "audio" in inputs:
+                res_i["audio"] = inputs.pop("audio")[0]
+            if "use_audio" in inputs:
+                res_i["use_audio"] = inputs.pop("use_audio")[0]
+            ground_truth = inputs.pop("ref")[0]
+            res_i["conversations"].append({"from": "gpt", "chosen": ground_truth})
 
             inputs_on_device = {}
             for k, v in inputs.items():
                 if isinstance(v, torch.Tensor):
+                    repeat_shape = (num_generations, *[1 for _ in range(len(v.shape) - 1)])
+                    v = v.repeat(*repeat_shape)
                     inputs_on_device[k] = v.to(unwrapped_model.device)
                 else:
                     inputs_on_device[k] = v
@@ -119,29 +137,48 @@ def inference():
             with torch.no_grad():
                 outputs = unwrapped_model.generate(
                     **inputs_on_device,
-                    max_new_tokens=config["max_new_tokens"],
-                    do_sample=config["do_sample"],
-                    top_p=0.9,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=True,
+                    top_p=top_p,
+                    temperature=temperature,
+                    top_k=top_k,
                     stopping_criteria=[stopping_criteria],
                 )
-            output_trimmed = outputs[0, len(inputs_on_device["input_ids"][0]):]
-            output_text = dataset.tokenizer.decode(
+            output_trimmed = outputs[:, len(inputs_on_device["input_ids"][0]):]
+            output_text = dataset.tokenizer.batch_decode(
                 output_trimmed, skip_special_tokens=False, clean_up_tokenization_spaces=False
             )
-            matched = pattern.search(output_text)
-            if matched:
-                output_text = output_text[:matched.start()]
-            res_i["pred"] = output_text
-            result.append(res_i)
+            predictions = []
+            for output_text_i in output_text:
+                matched = pattern.search(output_text_i)
+                if matched:
+                    output_text_i = output_text_i[:matched.start()]
+                predictions.append(output_text_i)
 
-    output_fpath = exp_dir / config["output_fname"]
+            predictions = list(set(predictions))
+
+            rewards = reward_func(
+                completions=predictions,
+                labels_text=[ground_truth] * len(predictions),
+                keywords=inputs["keywords"] * len(predictions),
+            )
+
+            preference_pairs = []
+            for reward, prediction in zip(rewards, predictions):
+                if reward < reward_threshold:
+                    res_i["conversations"][-1]["rejected"] = prediction
+                    preference_pairs.append(copy.deepcopy(res_i))
+
+            output_data.extend(preference_pairs)
+
+    output_fpath = Path(config["output_fname"])
     tmp_dir = output_fpath.with_suffix("")
     if rank == 0:
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
     dist.barrier()
     with open(tmp_dir / f"infer_results_rank{rank}.json", "w") as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
+        json.dump(output_data, f, indent=2, ensure_ascii=False)
     dist.barrier()
 
     if rank == 0:
@@ -156,6 +193,8 @@ def inference():
             file.unlink()
         tmp_dir.rmdir()
 
+    dist.destroy_process_group()
+
 
 if __name__ == "__main__":
-    inference()
+    run()

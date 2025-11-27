@@ -171,7 +171,7 @@ dataset/
 # VSCode
 .vscode
 
-data/*
+data_json/*
 data_cot/*
 experiments/*
 
@@ -181,3 +181,8 @@ data_preprocess/
 !data_preprocess/transform_to_qwen_format.py
 
 scripts/*rjob*
+
+# Pyright
+pyrightconfig.json
+
+notebooks/

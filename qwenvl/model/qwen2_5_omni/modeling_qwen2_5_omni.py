@@ -2283,6 +2283,9 @@ class Qwen2_5OmniThinkerForConditionalGeneration(
         self.build_model(config)
         self.post_init()
 
+    def get_output_embeddings(self) -> nn.Module:
+        return self.lm_head
+
     def build_model(self, config: Qwen2_5OmniThinkerConfig):
         self.audio_tower = Qwen2_5OmniAudioEncoder._from_config(
             config.audio_config, attn_implementation=config._attn_implementation

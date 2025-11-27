@@ -98,14 +98,14 @@ def main(config):
         print(f"Accuracy: {acc:.4f}")
 
         # Calculate F1 score (excluding failure class)
-        valid_labels = [v for v in spoof_method_mapping.values() if v != spoof_method_mapping["failure"]]
+        valid_labels = list(set(gt_labels))
         f1 = f1_score(gt_labels, pred_labels, average='macro', labels=valid_labels)
         print(f"F1 Score (macro): {f1:.4f}", file=writer, flush=True)
         print(f"F1 Score (macro): {f1:.4f}")
 
         # Calculate F1 score for each class
         for label_idx in spoof_method_mapping.values():
-            if label_idx in gt_labels:
+            if label_idx in valid_labels:
                 methods = "; ".join([k for k, v in spoof_method_mapping.items() if v == label_idx])
                 f1_per_class = f1_score(gt_labels, pred_labels, average=None, labels=[label_idx])[0]
                 print(f"F1 Score ({methods}): {f1_per_class:.4f}", file=writer, flush=True)

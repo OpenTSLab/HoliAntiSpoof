@@ -114,14 +114,17 @@ class SpoofingParser:
         elif isinstance(fake_region, list):
             validate = True
             for region in fake_region:
-                if len(region) != 2:
+                if not isinstance(region, list):
                     validate = False
                 else:
-                    if not (isinstance(region[0], (int, float)) and isinstance(region[1], (int, float))):
+                    if len(region) != 2:
                         validate = False
                     else:
-                        if region[0] >= region[1]:
+                        if not (isinstance(region[0], (int, float)) and isinstance(region[1], (int, float))):
                             validate = False
+                        else:
+                            if region[0] >= region[1]:
+                                validate = False
                 if not validate:
                     break
             return validate

@@ -1,0 +1,18 @@
+dataset:
+  _target_: qwenvl.data.data_qwen.AudioSpoofingDataset
+  stage: training
+  train_type: sft
+  model_type: qwen2.5omni
+  dataset_list:
+    - data_json/recent_tts/train.json
+  processor:
+    _target_: qwenvl.data.processing_qwen2_5_omni.Qwen2_5OmniProcessor.from_pretrained
+    pretrained_model_name_or_path: /mnt/shared-storage-user/brainllm-share/checkpoints/Qwen2.5-Omni-7B
+  data_format: "json"
+  petrel_oss_config: /mnt/shared-storage-user/xuxuenan/petreloss.conf
+
+collate_fn:
+  _target_: qwenvl.data.data_qwen.OmniCollator
+  torchify_keys:
+    - video_second_per_grid
+    - spoof_embeds

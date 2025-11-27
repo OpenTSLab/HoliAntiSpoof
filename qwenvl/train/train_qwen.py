@@ -38,7 +38,6 @@ from qwenvl.train.utils import (
     set_seed,
 )
 from qwenvl.train.trainer import QwenVLTrainer
-from qwenvl.model import ModelProtocol
 
 
 def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: str):
@@ -71,14 +70,14 @@ def train():
 
     config = load_config(args.config_file, args.options)
 
-    training_args, = parser.parse_dict(config["trainer"], allow_extra_keys=True)
+    training_args, = parser.parse_dict(config["training_args"], allow_extra_keys=True)
     # `dist.init_process_group` is called in the parsing of `training_args`
     if dist.is_initialized():
         rank = dist.get_rank()
     else:
         rank = 0
 
-    exp_dir = Path(config["trainer"]["output_dir"])
+    exp_dir = Path(config["training_args"]["output_dir"])
 
     if rank == 0:
         exp_dir.mkdir(parents=True, exist_ok=True)
@@ -92,10 +91,6 @@ def train():
     ], f"model_type {config['model_type']} is not supported"
 
     apply_liger_kernel_to_qwen2_5_vl()
-
-    train_dataset = instantiate(config["train_dataset"], _convert_="all")
-    val_dataset = instantiate(config["val_dataset"], _convert_="all")
-    data_collator = instantiate(config["data_collator"], _convert_="all")
 
     model: PreTrainedModel = initialize_model(config["model"], training_args)
     if "lora_ckpt" in config["model"] and config["model"]["lora_ckpt"]:
@@ -111,7 +106,13 @@ def train():
     model = set_lora(model, config["model"])
 
     print_trainable_blocks(model)
+
+    train_dataset = instantiate(config["train_dataset"], _convert_="all")
+    val_dataset = instantiate(config["val_dataset"], _convert_="all")
+    data_collator = instantiate(config["data_collator"], _convert_="all")
     metric = instantiate(config["metric"], _convert_="all")
+    callbacks = instantiate(config["callbacks"], _convert_="all")
+
     trainer = QwenVLTrainer(
         model=model,
         processing_class=train_dataset.tokenizer,
@@ -121,6 +122,7 @@ def train():
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         data_collator=data_collator,
+        callbacks=callbacks,
     )
 
     if list(exp_dir.glob("checkpoint-*")):

@@ -18,11 +18,12 @@ def main(config):
         output.extend(json.load(open(dataset.pred, 'r')))
 
     file_to_keywords = {}
-    with open("data/partial_edit/test.json", "r") as f:
-        for item in tqdm(json.load(f)):
-            if "keywords" not in item:
-                continue
-            file_to_keywords[item["audio"]] = item["keywords"].split()
+    for editing_keywords_file in config.editing_keywords_files:
+        with open(editing_keywords_file, "r") as f:
+            for item in tqdm(json.load(f)):
+                if "keywords" not in item:
+                    continue
+                file_to_keywords[item["audio"]] = item["keywords"].split()
 
     keyword_matched = 0
     total_num = 0

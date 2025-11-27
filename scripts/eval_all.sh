@@ -88,3 +88,29 @@ if [ "${eval_keyword}" -eq 1 ]; then
         --config-name eval_composite \
         infer_dir=$infer_dir
 fi
+
+python evaluation/eval_real_fake.py \
+    --config-name eval_had \
+    infer_dir=$infer_dir
+
+python evaluation/eval_spoof_method.py \
+    --config-name eval_had \
+    infer_dir=$infer_dir \
+    ++is_coarse=True
+
+python evaluation/eval_fake_region.py \
+    --config-name eval_had \
+    infer_dir=$infer_dir
+
+python evaluation/eval_real_fake.py \
+    --config-name eval_emofake \
+    infer_dir=$infer_dir
+
+python evaluation/eval_spoof_method.py \
+    --config-name eval_emofake \
+    infer_dir=$infer_dir \
+    ++is_coarse=True
+
+python evaluation/eval_real_fake.py \
+    --config-name eval_scenefake \
+    infer_dir=$infer_dir

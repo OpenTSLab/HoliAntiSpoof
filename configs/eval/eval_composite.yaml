@@ -22,6 +22,8 @@ pred_durations:
 
 output_file: ${infer_dir}/results/composite.txt
 
+editing_keywords_files:
+  - data_json/partial_edit/test.json
 
 hydra:
   output_subdir: null

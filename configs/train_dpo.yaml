@@ -6,25 +6,24 @@ defaults:
   - _self_
 
 global:
-  train_type: grpo
+  train_type: dpo
 
 metric:
   _target_: qwenvl.train.metrics.RewardWrapper
 
 data_dict:
   train:
+    _target_: qwenvl.data.data_qwen.AudioSpoofingPreferenceDataset
     dataset_list:
-      - data_json/sine/train.json
-      - data_json/codecfake_ntu/train.json
-      - data_json/vctk/train.json
-      - data_json/partial_edit/train.json
-    dataset_max_samples: 5000
+      - data_json/asvspoof2019/train_preference.json
+    # dataset_max_samples: 5000
   val:
+    _target_: qwenvl.data.data_qwen.AudioSpoofingPreferenceDataset
     dataset_list:
-      - data_json/sine/val.json
-      - data_json/codecfake_ntu/val.json
-      - data_json/partial_edit/val.json
-      - data_json/vctk/val.json
+      - data_json/asvspoof2019/train_preference.json
+      # - data/codecfake_ntu/val.json
+      # - data/partial_edit/val.json
+      # - data/vctk/val.json
     dataset_max_samples: 500
 
 train_dataset: ${data_dict.train}
@@ -32,7 +31,7 @@ train_dataset: ${data_dict.train}
 val_dataset: ${data_dict.val}
 
 data_collator:
-  _target_: qwenvl.data.data_qwen.OmniCollator
+  _target_: qwenvl.data.data_qwen.OmniPreferenceCollator
   torchify_keys:
     - video_second_per_grid
     - spoof_embed
@@ -41,20 +40,21 @@ reward_fn:
   _target_: qwenvl.train.reward_functions.SpoofReward
 
 model:
-  lora_ckpt: experiments/all_data_json/r_64/checkpoint-22000
+  lora_ckpt: experiments/recent_tts_wrong_speech_tag/r_64/checkpoint-20000
+
 
 # training args
 training_args:
-  # deepspeed: scripts/zero/zero0.json # ZeRO stage 0 - 1. bf16, when rewards within a group is the same, advantage=0, loss=0, assertion error from `assert all_groups_norm > 0` 2. fp16: gradient cannot be back-propagated, don't know why
+  deepspeed: scripts/zero/zero0.json
   bf16: true
 
-  output_dir: experiments/all_data_json/r_64_grpo
+  output_dir: experiments/all_data/r_64_grpo
   run_name: "r_64_grpo"
   report_to: "tensorboard"
 
   per_device_train_batch_size: 8
   per_device_eval_batch_size: 16
-  dataloader_num_workers: 12
+  dataloader_num_workers: 0
 
   learning_rate: !!float 2e-6
   adam_beta1: 0.9
@@ -81,26 +81,19 @@ training_args:
 
   logging_steps: 10
 
-  # for GRPO compatibility
-  include_for_metrics:
-    - loss
-  prediction_loss_only: true
-  dataloader_drop_last: true
+  # # for GRPO compatibility
+  # include_for_metrics:
+  #   - loss
+  # prediction_loss_only: true
 
-  # GRPO args
-  use_liger_loss: false
-  num_iterations: 1
-  num_generations: 8
+  remove_unused_columns: false
+
+  # DPO args
+  use_liger_loss: true
   max_completion_length: 256
-  loss_type: "dr_grpo"
-  temperature: 1.5
-  top_p: 0.9
-  beta: 0.01
-  delta: 1.3
-  epsilon_high: 0.28
+  loss_type: "sigmoid"
+  beta: 0.1
   unused_items_for_generation: ["keywords", "prompt", "ref", "audio", "video", "index"]
-  shuffle_dataset: true
-  mask_truncated_completions: true
 
 hydra:
   output_subdir: null

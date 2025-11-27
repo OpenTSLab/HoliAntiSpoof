@@ -1,0 +1,20 @@
+train:
+  - data_cot/asvspoof2019/train.json
+  - data_cot/partial_spoof/train.json
+  - data_cot/sine/train.json
+  - data_cot/wavefake/train.json
+  - data_cot/codecfake_ntu/train.json
+  - data_cot/partial_edit/train.json
+  - data_cot/vctk/train.json
+  - data_cot/recent_tts/train.json
+  - data_cot/ljspeech/train.json
+val:
+  - data_cot/asvspoof2019/dev.json
+  - data_cot/partial_spoof/dev.json
+  - data_cot/sine/val.json
+  - data_cot/wavefake/val.json
+  - data_cot/codecfake_ntu/val.json
+  - data_cot/partial_edit/val.json
+  - data_cot/vctk/val.json
+  - data_cot/recent_tts/val.json
+  - data_cot/ljspeech/val.json

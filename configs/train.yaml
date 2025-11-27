@@ -15,7 +15,7 @@ data_collator:
   _target_: qwenvl.data.data_qwen.OmniCollator
   torchify_keys:
     - video_second_per_grid
-    - spoof_embed
+    - spoof_embeds
 
 metric:
   _target_: qwenvl.train.metrics.SpoofingAccuracy
@@ -23,7 +23,7 @@ metric:
 
 
 # training args
-trainer:
+training_args:
   deepspeed: scripts/zero/zero0.json
   bf16: true
 
@@ -47,7 +47,7 @@ trainer:
   lr_scheduler_type: "cosine"
 
   num_train_epochs: 1
-  max_steps: 200000
+  max_steps: 20000
 
   eval_strategy: steps
   eval_steps: 2000
@@ -56,12 +56,16 @@ trainer:
 
   save_strategy: best
   save_steps: 5000
-  save_total_limit: 3
+  save_total_limit: 2
 
   logging_steps: 50
   model_max_length: 131072
 
   remove_unused_columns: false
+
+callbacks:
+  - _target_: transformers.EarlyStoppingCallback
+    early_stopping_patience: 10
 
 hydra:
   output_subdir: null
