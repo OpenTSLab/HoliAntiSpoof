@@ -78,9 +78,11 @@ datasets=(
 #   "sine data_cot/sine/test_1500_no_vocoder.json"
 #   "vctk data_cot/vctk/test_2000.json"
 #   "wavefake data_cot/wavefake/test.json"
+#   "asvspoof2019_all data_cot/asvspoof2019/eval.json"
 #   "had data_cot/had/test.json"
-  "emofake data_cot/emofake/eval_English.json"
-  "scenefake data_cot/scenefake/eval.json"
+#   "emofake data_cot/emofake/eval_English.json"
+#   "scenefake data_cot/scenefake/eval.json"
+  "speechfake data_cot/speechfake/test.json"
 )
 
 

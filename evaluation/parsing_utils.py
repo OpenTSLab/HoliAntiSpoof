@@ -1,6 +1,8 @@
 import re
 import json
 
+from numpy import isin
+
 
 class SpoofingParser:
     def __init__(self, data_format: str):
@@ -29,15 +31,27 @@ class SpoofingParser:
             format_success = True
             try:
                 data = json.loads(text)
+                format_success = isinstance(data, dict)
             except json.JSONDecodeError:
                 format_success = False
-                real_or_fake, spoof_method, fake_region, semantic_influence = None, None, None, None
 
             if format_success:
                 real_or_fake = data.get("real_or_fake", None)
+                if not isinstance(real_or_fake, str):
+                    real_or_fake = None
                 spoof_method = data.get("spoof_method", None)
+                if not isinstance(spoof_method, str):
+                    spoof_method = None
                 fake_region = data.get("fake_region", None)
-                semantic_influence = data.get("semantic_influence", None)
+                if not isinstance(fake_region, (list, str)):
+                    fake_region = None
+
+                semantic_influence = None
+                if "semantic_influence" in data and isinstance(data["semantic_influence"], str):
+                    semantic_influence = data["semantic_influence"]
+            
+            else:
+                real_or_fake, spoof_method, fake_region, semantic_influence = None, None, None, None
 
         elif self.data_format == "cot":
 

@@ -82,7 +82,7 @@ datasets=(
   "had data_json/had/test.json"
   "emofake data_json/emofake/eval_English.json"
   "scenefake data_json/scenefake/eval.json"
-#   "speechfake data_json/speechfake/test.json"
+  "speechfake data_json/speechfake/test.json"
 )
 
 

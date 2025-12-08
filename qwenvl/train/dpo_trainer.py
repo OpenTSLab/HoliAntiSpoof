@@ -340,6 +340,12 @@ class DPOQwenVLTrainer(QwenVLTrainer):
         if self.loss_type == "bco_pair":
             self.running = RunningMoments(self.accelerator)
 
+        self._peft_has_been_casted_to_bf16 = False
+        if args.bf16 and getattr(model, "is_loaded_in_4bit", False):
+            peft_module_casting_to_bf16(model)
+            # If args.bf16 we need to explicitly call `generate` with torch amp autocast context manager
+            self._peft_has_been_casted_to_bf16 = True
+
     def compute_ref_log_probs(self, batch: dict[str, torch.LongTensor]) -> dict:
         """Computes log probabilities of the reference model for a single padded batch of a DPO specific dataset."""
         with torch.no_grad():
@@ -984,22 +990,34 @@ class DPOQwenVLTrainer(QwenVLTrainer):
         if self.aux_loss_enabled:
             losses = losses + self.aux_loss_coef * model_output["aux_loss"]
 
-        if train_eval == "eval":
-            metrics["rewards/chosen"] = self.accelerator.gather_for_metrics(chosen_rewards).mean().item()
-            metrics["rewards/rejected"] = self.accelerator.gather_for_metrics(rejected_rewards).mean().item()
-            metrics["rewards/accuracies"] = self.accelerator.gather_for_metrics(reward_accuracies).mean().item()
-            metrics["rewards/margins"] = (
-                self.accelerator.gather_for_metrics(chosen_rewards - rejected_rewards).mean().item()
-            )
+        prefix = "eval_" if train_eval == "eval" else ""
+        metrics[f"{prefix}rewards/chosen"] = self.accelerator.gather_for_metrics(chosen_rewards).mean().item()
+        metrics[f"{prefix}rewards/rejected"] = self.accelerator.gather_for_metrics(rejected_rewards).mean().item()
+        metrics[f"{prefix}rewards/accuracies"] = self.accelerator.gather_for_metrics(reward_accuracies).mean().item()
+        metrics[f"{prefix}rewards/margins"] = (
+            self.accelerator.gather_for_metrics(chosen_rewards - rejected_rewards).mean().item()
+        )
+        metrics[f"{prefix}logps/chosen"] = (
+            self.accelerator.gather_for_metrics(model_output["chosen_logps"]).detach().mean().item()
+        )
+        metrics[f"{prefix}logps/rejected"] = (
+            self.accelerator.gather_for_metrics(model_output["rejected_logps"]).detach().mean().item()
+        )
+        metrics[f"{prefix}logits/chosen"] = (
+            self.accelerator.gather_for_metrics(model_output["mean_chosen_logits"]).detach().mean().item()
+        )
+        metrics[f"{prefix}logits/rejected"] = (
+            self.accelerator.gather_for_metrics(model_output["mean_rejected_logits"]).detach().mean().item()
+        )
 
-            # if args.rpo_alpha is not None:
-            #     metrics["nll_loss"] = (
-            #         self.accelerator.gather_for_metrics(model_output["nll_loss"]).detach().mean().item()
-            #     )
-            # if self.aux_loss_enabled:
-            #     metrics["aux_loss"] = (
-            #         self.accelerator.gather_for_metrics(model_output["aux_loss"]).detach().mean().item()
-            #     )
+        # if args.rpo_alpha is not None:
+        #     metrics["nll_loss"] = (
+        #         self.accelerator.gather_for_metrics(model_output["nll_loss"]).detach().mean().item()
+        #     )
+        # if self.aux_loss_enabled:
+        #     metrics["aux_loss"] = (
+        #         self.accelerator.gather_for_metrics(model_output["aux_loss"]).detach().mean().item()
+        #     )
 
         return losses.mean(), metrics
 
@@ -1110,40 +1128,40 @@ class DPOQwenVLTrainer(QwenVLTrainer):
         for key, value in metrics.items():
             self._stored_metrics[train_eval][key].append(value)
 
-    def evaluation_loop(
-        self,
-        dataloader: DataLoader,
-        description: str,
-        prediction_loss_only: Optional[bool] = None,
-        ignore_keys: Optional[list[str]] = None,
-        metric_key_prefix: str = "eval",
-    ) -> EvalLoopOutput:
-        """
-        Overriding built-in evaluation loop to store metrics for each batch. Prediction/evaluation loop, shared by
-        `Trainer.evaluate()` and `Trainer.predict()`.
+    # def evaluation_loop(
+    #     self,
+    #     dataloader: DataLoader,
+    #     description: str,
+    #     prediction_loss_only: Optional[bool] = None,
+    #     ignore_keys: Optional[list[str]] = None,
+    #     metric_key_prefix: str = "eval",
+    # ) -> EvalLoopOutput:
+    #     """
+    #     Overriding built-in evaluation loop to store metrics for each batch. Prediction/evaluation loop, shared by
+    #     `Trainer.evaluate()` and `Trainer.predict()`.
 
-        Works both with or without labels.
-        """
+    #     Works both with or without labels.
+    #     """
 
-        # Sample and save to game log if requested (for one batch to save time)
-        if self.generate_during_eval:
-            # Generate random indices within the range of the total number of samples
-            num_samples = len(dataloader.dataset)
-            random_indices = random.sample(range(num_samples), k=self.args.eval_batch_size)
+    #     # Sample and save to game log if requested (for one batch to save time)
+    #     if self.generate_during_eval:
+    #         # Generate random indices within the range of the total number of samples
+    #         num_samples = len(dataloader.dataset)
+    #         random_indices = random.sample(range(num_samples), k=self.args.eval_batch_size)
 
-            # Use dataloader.dataset.select to get the random batch without iterating over the DataLoader
-            random_batch_dataset = dataloader.dataset.select(random_indices)
-            random_batch = self.data_collator(random_batch_dataset)
-            random_batch = self._prepare_inputs(random_batch)
+    #         # Use dataloader.dataset.select to get the random batch without iterating over the DataLoader
+    #         random_batch_dataset = dataloader.dataset.select(random_indices)
+    #         random_batch = self.data_collator(random_batch_dataset)
+    #         random_batch = self._prepare_inputs(random_batch)
 
-            policy_output_decoded, ref_output_decoded = self.generate_from_model_and_ref(self.model, random_batch)
+    #         policy_output_decoded, ref_output_decoded = self.generate_from_model_and_ref(self.model, random_batch)
 
-        # Base evaluation
-        initial_output = super().evaluation_loop(
-            dataloader, description, prediction_loss_only, ignore_keys, metric_key_prefix
-        )
+    #     # Base evaluation
+    #     initial_output = super().evaluation_loop(
+    #         dataloader, description, prediction_loss_only, ignore_keys, metric_key_prefix
+    #     )
 
-        return initial_output
+    #     return initial_output
 
     def log(self, logs: dict[str, float], start_time: Optional[float] = None) -> None:
         """

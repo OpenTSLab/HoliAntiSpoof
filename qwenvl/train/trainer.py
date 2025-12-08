@@ -314,12 +314,13 @@ class QwenVLTrainer(Trainer):
         super().log(logs, start_time)
 
         if "eval_loss" in logs and self.args.should_save:
-            metric_name = self.compute_metrics.name
             log_entry = {
                 "epoch": f"{logs['epoch']:.3g}",
                 "eval_loss": f"{logs['eval_loss']:.3g}",
-                f"eval_{metric_name}": f"{logs[f'eval_{metric_name}']:.3g}"
             }
+            if self.compute_metrics is not None:
+                metric_name = self.compute_metrics.name
+                log_entry[f"eval_{metric_name}"] = f"{logs[f'eval_{metric_name}']:.3g}"
 
             # Write to file (append mode)
             with open(self.train_log_path, "a", encoding="utf-8") as f:

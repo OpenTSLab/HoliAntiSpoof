@@ -85,9 +85,9 @@ def train():
     print_trainable_blocks(model)
 
     reward_func = instantiate(config["reward_fn"], _convert_="all")
-    metric = instantiate(config["metric"], _convert_="all")
 
     if train_type == "grpo":
+        metric = instantiate(config["metric"], _convert_="all")
         trainer = GRPOQwenVLTrainer(
             model=model,
             processing_class=train_dataset.tokenizer,
@@ -104,7 +104,7 @@ def train():
             model=model,
             processing_class=train_dataset.tokenizer,
             args=training_args,
-            compute_metrics=metric,
+            # compute_metrics=metric,
             ref_model=ref_model,
             train_dataset=train_dataset,
             eval_dataset=val_dataset,

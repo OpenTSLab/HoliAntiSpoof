@@ -1,0 +1,118 @@
+defaults:
+  - global: qwen2_5_omni
+  - data@data_dict: spoofing
+  - model: qwen2_5_omni
+  - override hydra/job_logging: none
+  - _self_
+
+global:
+  train_type: dpo
+
+# metric:
+#   _target_: qwenvl.train.metrics.RewardWrapper
+
+data_dict:
+  train:
+    _target_: qwenvl.data.data_qwen.AudioSpoofingPreferenceDataset
+    dataset_list:
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/train/asvspoof2019.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/train/codecfake_ntu.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/train/ljspeech.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/train/partial_edit.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/train/partial_spoof.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/train/recent_tts.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/train/sine_no_vocoder.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/train/vctk.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/train/wavefake.json
+    # dataset_max_samples: 5000
+  val:
+    _target_: qwenvl.data.data_qwen.AudioSpoofingPreferenceDataset
+    dataset_list:
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/val/asvspoof2019.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/val/codecfake_ntu.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/val/ljspeech.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/val/partial_edit.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/val/partial_spoof.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/val/recent_tts.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/val/sine_no_vocoder.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/val/vctk.json
+      - experiments/all_data_json/sft_steps_20k/r_64/infer_step20000_preference_pairs/val/wavefake.json
+    # dataset_max_samples: 500
+
+train_dataset: ${data_dict.train}
+
+val_dataset: ${data_dict.val}
+
+data_collator:
+  _target_: qwenvl.data.data_qwen.OmniPreferenceCollator
+  torchify_keys:
+    - video_second_per_grid
+    - spoof_embed
+
+reward_fn:
+  _target_: qwenvl.train.reward_functions.SpoofReward
+
+model:
+  lora_ckpt: experiments/all_data_json/sft_steps_20k/r_64/checkpoint-20000
+
+
+# training args
+training_args:
+  deepspeed: scripts/zero/zero0.json
+  bf16: true
+
+  output_dir: experiments/all_data/r_64_dpo
+  run_name: "r_64_dpo"
+  report_to: "tensorboard"
+
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 16
+  dataloader_num_workers: 12
+
+  learning_rate: !!float 2e-6
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  weight_decay: 0.1
+  warmup_ratio: 0.05
+  max_grad_norm: 1
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+
+  lr_scheduler_type: "cosine"
+
+  # num_train_epochs: 3
+  max_steps: 3000
+  # max_steps: -1
+
+  eval_strategy: steps
+  # eval_steps: 1000
+  eval_steps: 500
+  # metric_for_best_model: "loss"
+  metric_for_best_model: "rewards/accuracies"
+
+  greater_is_better: true
+
+  save_strategy: best
+  save_steps: 1000
+  save_total_limit: 2
+
+  logging_steps: 10
+
+  # # for GRPO compatibility
+  # include_for_metrics:
+  #   - loss
+  # prediction_loss_only: true
+
+  remove_unused_columns: false
+
+  # DPO args
+  use_liger_loss: true
+  max_completion_length: 256
+  loss_type: "sigmoid"
+  beta: 0.1
+  unused_items_for_generation: ["keywords", "prompt", "ref", "audio", "video", "index"]
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .

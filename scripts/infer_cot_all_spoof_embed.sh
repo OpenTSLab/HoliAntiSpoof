@@ -2,8 +2,6 @@ cd /mnt/shared-storage-user/xuxuenan/workspace/qwen_training
 
 export PYTHONPATH=.
 
-N_GPUS=$(python -c "import torch; print(torch.cuda.device_count())")
-
 ckpt_path="experiments/all_data/r_64/infer_step20000"
 output_dir="infer_step20000"
 
@@ -26,21 +24,6 @@ Options:
 Examples:
   $0 --ckpt_path my_checkpoint --output_dir my_output
   $0 --ckpt_path experiments/my_model/checkpoint-100000 --output_dir infer_step100000
-
-Description:
-  This script runs inference on multiple datasets:
-  - asvspoof2019
-  - codecfake_ntu
-  - ljspeech
-  - partial_edit
-  - partial_spoof
-  - recent_tts
-  - sine
-  - vctk
-  - wavefake
-
-  The script automatically detects the number of available GPUs and runs
-  distributed inference using torchrun.
 EOF
     rm -f "$__snapshot_before"
     exit 0
@@ -68,18 +51,22 @@ done
 
 rm -f "$__snapshot_before"
 
-TORCHRUN="/mnt/shared-storage-user/xuxuenan/miniconda3/envs/qwen/bin/torchrun"
+torchrun_bin="/mnt/shared-storage-user/xuxuenan/miniconda3/envs/qwen/bin/torchrun"
 
 datasets=(
-  "asvspoof2019 data_cot/asvspoof2019/eval_2000.json"
-  "codecfake_ntu data_cot/codecfake_ntu/test_2000.json"
-  "ljspeech data_cot/ljspeech/test.json"
-  "partial_edit data_cot/partial_edit/test_2000.json"
-  "partial_spoof data_cot/partial_spoof/eval_2000.json"
-  "recent_tts data_cot/recent_tts/test_2000.json"
-  "sine data_cot/sine/test_1500_no_vocoder.json"
-  "vctk data_cot/vctk/test_2000.json"
-  "wavefake data_cot/wavefake/test.json"
+#   "asvspoof2019 data_cot/asvspoof2019/eval_2000.json"
+#   "codecfake_ntu data_cot/codecfake_ntu/test_2000.json"
+#   "ljspeech data_cot/ljspeech/test.json"
+#   "partial_edit data_cot/partial_edit/test_2000.json"
+#   "partial_spoof data_cot/partial_spoof/eval_2000.json"
+#   "recent_tts data_cot/recent_tts/test_2000.json"
+#   "sine data_cot/sine/test_1500_no_vocoder.json"
+#   "vctk data_cot/vctk/test_2000.json"
+#   "wavefake data_cot/wavefake/test.json"
+  "asvspoof2019_all data_cot/asvspoof2019/eval.json"
+#   "had data_cot/had/test.json"
+#   "emofake data_cot/emofake/eval_English.json"
+#   "scenefake data_cot/scenefake/eval.json"
 )
 
 
@@ -88,7 +75,7 @@ for pair in "${datasets[@]}"; do
 
     echo "Running inference for dataset: ${dataset_name}"
 
-    $TORCHRUN --nproc_per_node=${N_GPUS} --nnodes=${NODE_COUNT} --node_rank=${NODE_RANK} --master_addr=${MASTER_ADDR} \
+    ${torchrun_bin} --nproc_per_node=${PROC_PER_NODE} --nnodes=${NODE_COUNT} --node_rank=${NODE_RANK} --master_addr=${MASTER_ADDR} \
         qwenvl/train/inference.py \
         -c configs/infer.yaml \
         --options \
