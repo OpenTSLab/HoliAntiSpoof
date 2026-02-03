@@ -1,11 +1,10 @@
 import json
 from pathlib import Path
-from json import JSONDecodeError
 
 import hydra
 from sklearn.metrics import accuracy_score, f1_score
 
-from evaluation.parsing_utils import SpoofingParser
+from evaluation.parsing_utils import init_parser
 
 
 @hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_composite")
@@ -21,13 +20,7 @@ def main(config):
         "failure": 2,
     }
 
-    data_format = "json"
-    try:
-        json.loads(output[0]['ref'])
-    except JSONDecodeError:
-        data_format = "cot"
-
-    text_parser = SpoofingParser(data_format)
+    text_parser = init_parser(output)
 
     gts, preds = [], []
     for idx, item in enumerate(output):

@@ -211,6 +211,7 @@ class DPOQwenVLTrainer(QwenVLTrainer):
                 beta=args.beta,
                 use_ref_model=not args.reference_free,
                 average_log_prob=False,
+                compute_nll_loss=True,
             )
         # The trainer estimates the number of FLOPs (floating-point operations) using the number of elements in the
         # input tensor associated with the key "input_ids". However, in DPO, the sampled data does not include the
@@ -746,7 +747,6 @@ class DPOQwenVLTrainer(QwenVLTrainer):
                 Whether this method is being called for the reference model. If `True`, length desensitization is not
                 applied.
         """
-
         args: DPOArguments = self.args
         model_kwargs = {"use_cache": False}
         if self.aux_loss_enabled:
@@ -899,8 +899,8 @@ class DPOQwenVLTrainer(QwenVLTrainer):
 
         if args.rpo_alpha is not None:
             # Only use the chosen logits for the RPO loss
-            chosen_logits = logits[:num_examples, :-1] if not self.is_encoder_decoder else logits[:num_examples]
-            chosen_labels = labels[:num_examples, :-1] if not self.is_encoder_decoder else labels[:num_examples]
+            chosen_logits = logits[:num_examples, :-1]
+            chosen_labels = labels[:num_examples, :-1]
 
             # Compute the log probabilities of the labels
             output["nll_loss"] = F.cross_entropy(

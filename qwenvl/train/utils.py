@@ -169,6 +169,7 @@ def load_non_lora_params_from_ckpt(
 
 
 def load_maybe_lora_ckpt(model: ModelProtocol, pretrained_ckpt: str, is_lora: bool) -> ModelProtocol:
+    rank0_print(f"Loading checkpoint from {pretrained_ckpt}")
     if is_lora:
         model = PeftModel.from_pretrained(model, pretrained_ckpt)
         model = model.merge_and_unload()
@@ -185,7 +186,7 @@ def initialize_model(config: dict, training_args: TrainingArguments) -> ModelPro
     # this is used for initializing model before training and inference, during inference, it
     # is called before loading the "real" checkpoint in experiment directory
     torch_dtype = get_torch_dtype(training_args.bf16, training_args.fp16)
-    config["architecture"]["torch_dtype"] = torch_dtype
+    config["architecture"]["dtype"] = torch_dtype
     model: nn.Module = instantiate(config["architecture"], _convert_="all")
 
     if "lora_ckpt" in config and config["lora_ckpt"]:
@@ -322,12 +323,37 @@ def set_lora(model: ModelProtocol, model_cfg: dict) -> ModelProtocol:
         if trainable_cfg["audio_encoder"]:
             modules_to_save.append("audio")
     elif model.model_type == "qwen2.5omni":
+        # process vision tower
         if trainable_cfg["vision_encoder"]:
-            modules_to_save.append("visual")
-        if trainable_cfg["vision_adapter"]:
+            if trainable_cfg["vision_adapter"]:
+                # save the whole vision tower
+                modules_to_save.append("visual")
+            else:
+                # save modules except merger
+                modules_to_save.append("visual.patch_embed")
+                modules_to_save.append("visual.rotary_pos_emb")
+                modules_to_save.append("visual.blocks")
+        elif trainable_cfg["vision_adapter"]:
+            # only save merger
             modules_to_save.append("visual.merger")
+
+        # process audio tower
         if trainable_cfg["audio_encoder"]:
-            modules_to_save.append("audio_tower")
+            if trainable_cfg["audio_adapter"]:
+                # save the whole audio tower
+                modules_to_save.append("audio_tower")
+            else:
+                # save modules except ln_post and proj
+                modules_to_save.append("audio_tower.conv1")
+                modules_to_save.append("audio_tower.conv2")
+                modules_to_save.append("audio_tower.positional_embedding")
+                modules_to_save.append("audio_tower.audio_bos_eos_token")
+                modules_to_save.append("audio_tower.layers")
+                modules_to_save.append("audio_tower.avg_pooler")
+        elif trainable_cfg["audio_adapter"]:
+            # only save ln_post and proj
+            modules_to_save.append("audio_tower.ln_post")
+            modules_to_save.append("audio_tower.proj")
         if hasattr(model, "spoof_proj"):
             modules_to_save.append("spoof_proj")
     elif model.model_type == "qwen2audio":

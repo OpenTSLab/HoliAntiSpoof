@@ -18,17 +18,17 @@ Processor class for Qwen2.5Omni.
 """
 
 import logging
+import math
 import re
 from typing import List, Optional, Union
 
 import numpy as np
 
 from transformers.feature_extraction_utils import BatchFeature
-from transformers.image_utils import ImageInput, VideoInput, make_batched_videos
+from transformers.image_utils import ImageInput
+from transformers.video_utils import VideoInput, make_batched_videos
 from transformers.processing_utils import ImagesKwargs, ProcessingKwargs, ProcessorMixin, Unpack, VideosKwargs
 from transformers.tokenization_utils_base import AudioInput, PreTokenizedInput, TextInput
-
-import math
 
 
 class Qwen2_5_OmniVideosKwargs(VideosKwargs):
@@ -114,7 +114,7 @@ class Qwen2_5OmniProcessor(ProcessorMixin):
         videos: VideoInput = None,
         audio: AudioInput = None,
         **kwargs: Unpack[Qwen2_5OmniProcessorKwargs],
-    ) -> BatchFeature:
+    ) -> tuple[BatchFeature, list[str]]:
         """
         Main method to prepare for the model one or several sequences(s) and audio(s). This method forwards the `text`
         and `kwargs` arguments to Qwen2TokenizerFast's [`~Qwen2TokenizerFast.__call__`] if `text` is not `None` to encode
@@ -206,9 +206,14 @@ class Qwen2_5OmniProcessor(ProcessorMixin):
         texts_inputs = self.tokenizer(text, **output_kwargs["text_kwargs"])
 
         return BatchFeature(
-            data={**texts_inputs, **images_inputs, **videos_inputs, **audio_inputs},
+            data={
+                **texts_inputs,
+                **images_inputs,
+                **videos_inputs,
+                **audio_inputs
+            },
             tensor_type=kwargs.get("return_tensors"),
-        )
+        ), text
 
     def replace_multimodal_special_tokens(
         self,
@@ -251,7 +256,9 @@ class Qwen2_5OmniProcessor(ProcessorMixin):
                         video_token_indices = np.broadcast_to(
                             video_token_indices, (video_token_indices.shape[0], height, width)
                         ).reshape(-1)
-                        video_token_indices = (video_token_indices * next(video_second_per_grid) * position_id_per_seconds)
+                        video_token_indices = (
+                            video_token_indices * next(video_second_per_grid) * position_id_per_seconds
+                        )
                         tokens_per_chunk = position_id_per_seconds * seconds_per_chunk
 
                         video_chunk_indexes = self.get_chunked_index(video_token_indices, tokens_per_chunk)
@@ -297,12 +304,13 @@ class Qwen2_5OmniProcessor(ProcessorMixin):
             `List[Tuple[int, int]]`: A list of tuples, each representing the start (inclusive)
                                 and end (exclusive) indices of a chunk in `token_indices`.
         """
-
         def _iter():
             i, start_idx = 0, 0  # skip bos token
             current_chunk = 1
             while i < len(token_indices):  # skip eos token
-                if token_indices[i] >= current_chunk * tokens_per_chunk or math.isclose(token_indices[i], current_chunk * tokens_per_chunk, rel_tol=1e-5):
+                if token_indices[i] >= current_chunk * tokens_per_chunk or math.isclose(
+                    token_indices[i], current_chunk * tokens_per_chunk, rel_tol=1e-5
+                ):
                     yield (start_idx, i)
                     start_idx = i
                     current_chunk += 1
@@ -330,13 +338,12 @@ class Qwen2_5OmniProcessor(ProcessorMixin):
             conversations = [conversations]
         for conversation in conversations:
             if (
-                conversation[0]["role"] != "system"
-                or conversation[0]["content"][0]["text"]
-                != "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."
+                conversation[0]["role"] != "system" or conversation[0]["content"][0]["text"] !=
+                "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."
             ):
                 logging.warning(
-                    "System prompt modified, audio output may not work as expected. "
-                    + "Audio output mode only works when using default system prompt 'You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.'"
+                    "System prompt modified, audio output may not work as expected. " +
+                    "Audio output mode only works when using default system prompt 'You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.'"
                 )
         return super().apply_chat_template(conversations, chat_template, **kwargs)
 
@@ -347,11 +354,8 @@ class Qwen2_5OmniProcessor(ProcessorMixin):
         image_processor_input_names = self.image_processor.model_input_names
         return list(
             dict.fromkeys(
-                tokenizer_input_names
-                + feature_extractor_input_names
-                + image_processor_input_names
-                + ["feature_attention_mask"]
-                + ["video_second_per_grid"]
+                tokenizer_input_names + feature_extractor_input_names + image_processor_input_names +
+                ["feature_attention_mask"] + ["video_second_per_grid"]
             )
         )
 

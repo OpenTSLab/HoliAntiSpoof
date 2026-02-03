@@ -1,4 +1,0 @@
-train:
-  - data_json/asvspoof2019/train.json
-val:
-  - data_json/asvspoof2019/dev.json

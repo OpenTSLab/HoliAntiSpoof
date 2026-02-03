@@ -7,7 +7,7 @@ from json import JSONDecodeError
 import hydra
 from sklearn.metrics import accuracy_score, f1_score
 
-from evaluation.parsing_utils import SpoofingParser
+from evaluation.parsing_utils import SpoofingParser, init_parser
 
 # spoof_method mapping
 detailed_spoof_method_mapping = {
@@ -34,7 +34,7 @@ coarse_spoof_method_mapping = {
 @hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_composite")
 def main(config):
 
-    is_coarse = config.get("is_coarse", False)
+    is_coarse = config.get("is_coarse", True)
 
     output = []
     for dataset in config.pred_durations:
@@ -42,13 +42,7 @@ def main(config):
 
     files = set()
 
-    data_format = "json"
-    try:
-        json.loads(output[0]['ref'])
-    except JSONDecodeError:
-        data_format = "cot"
-
-    text_parser = SpoofingParser(data_format)
+    text_parser = init_parser(output)
 
     gts, preds = [], []
     for idx, item in enumerate(output):
@@ -60,6 +54,8 @@ def main(config):
 
         gt_data = text_parser(item["ref"])
         if gt_data["real_or_fake"] != "fake":
+            continue
+        if gt_data["spoof_method"] is None:
             continue
         gts.append(gt_data["spoof_method"])
         pred = text_parser(item["pred"])["spoof_method"]

@@ -39,19 +39,27 @@ random.seed(42)
 
 
 class Runner:
-    def transform(self, input: str, output: str):
+    def transform(self, input: str, output: str, split: str):
 
-        salmonn_prompts = json.load(
+        train_salmonn_prompts = json.load(
             open("/mnt/shared-storage-user/xuxuenan/workspace/duplex_training/"
                  "salmonn_prompts/train_prompt.json")
         )
+        test_salmonn_prompts = json.load(
+            open("/mnt/shared-storage-user/xuxuenan/workspace/duplex_training/"
+                 "salmonn_prompts/test_prompt.json")
+        )
+
         data = json.load(open(input, "r"))
         transformed_data = []
         for item in data["annotation"]:
             audio_path = item["path"]
             text = item["text"]
             task = item["task"]
-            instruction = random.choice(salmonn_prompts[task])
+            if split == "train":
+                instruction = random.choice(train_salmonn_prompts[task])
+            elif split == "test":
+                instruction = test_salmonn_prompts[task]
             instruction = instruction.replace("<Speech><SpeechHere></Speech> ", "")
             qwen_conv = [{"from": "human", "value": f"<image>\n{instruction}"}, {"from": "gpt", "value": text}]
             qwen_item = {"audio": audio_path, "conversations": qwen_conv}

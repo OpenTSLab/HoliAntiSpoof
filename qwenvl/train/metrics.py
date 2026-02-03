@@ -39,6 +39,13 @@ class SpoofingAccuracy:
 
         return {self.name: correct / len(predictions)}
 
+@dataclass
+class SpoofingAccuracyWithPdb(SpoofingAccuracy):
+
+    def __call__(self, eval_pred: EvalPrediction, processing_class: AutoTokenizer):
+        import ipdb
+        ipdb.set_trace()
+        return super().__call__(eval_pred, processing_class)
 
 class RewardWrapper:
 

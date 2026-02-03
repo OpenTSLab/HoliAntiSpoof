@@ -1,12 +1,10 @@
 import re
 import json
 
-from numpy import isin
-
 
 class SpoofingParser:
     def __init__(self, data_format: str):
-        assert data_format in ("json", "cot"), f"data format {data_format} not recognized"
+        assert data_format in ("json", "cot", "real_fake_raw", "raw_text"), f"data format {data_format} not recognized"
         self.data_format = data_format
         if self.data_format == "cot":
             # Precompile regex to speed up repeated matches and reduce backtracking
@@ -25,6 +23,16 @@ class SpoofingParser:
             # Regex to extract all time ranges (xxx-xxx format) from text
             self.time_range_regex = re.compile(r'([0-9.]+-[0-9.]+)')
             self.real_fake_transform = {"real": "real", "a spoof": "fake"}
+        elif self.data_format == "raw_text":
+            self.real_fake_regex = re.compile(r"The utterance is ([^.]+)\.", re.DOTALL)
+            self.semantic_influence_regex = re.compile(
+                r"The spoofing may result in the following influence: (.*)", re.DOTALL
+            )
+            self.spoof_method_regex = re.compile(r"The spoof method is ([^.]+)\.", re.DOTALL)
+            self.fake_region_regex = re.compile(
+                r'The fake region is ([0-9.]+-[0-9.]+ seconds(?:, [0-9.]+-[0-9.]+ seconds)*)\.', re.DOTALL
+            )
+            self.time_range_regex = re.compile(r'([0-9.]+-[0-9.]+)')
 
     def __call__(self, text):
         if self.data_format == "json":
@@ -49,7 +57,7 @@ class SpoofingParser:
                 semantic_influence = None
                 if "semantic_influence" in data and isinstance(data["semantic_influence"], str):
                     semantic_influence = data["semantic_influence"]
-            
+
             else:
                 real_or_fake, spoof_method, fake_region, semantic_influence = None, None, None, None
 
@@ -101,6 +109,12 @@ class SpoofingParser:
                         fake_region = []
                         for segment in fake_region_text:
                             start, end = segment.split("-")
+                            try:
+                                start, end = float(start), float(end)
+                            except ValueError:
+                                fake_region = None
+                                break
+
                             fake_region.append([float(start), float(end)])
 
             else:
@@ -108,6 +122,68 @@ class SpoofingParser:
 
             if real_or_fake:
                 real_or_fake = self.real_fake_transform.get(real_or_fake, None)
+
+        elif self.data_format == "real_fake_raw":
+            real_or_fake = text
+            spoof_method, fake_region, semantic_influence = None, None, None
+            format_success = True
+
+        elif self.data_format == "raw_text":
+            real_or_fake = self.real_fake_regex.search(text)
+            if real_or_fake:
+                real_or_fake = real_or_fake.group(1)
+            else:
+                real_or_fake = None
+
+            semantic_influence = self.semantic_influence_regex.search(text)
+            if semantic_influence:
+                semantic_influence = semantic_influence.group(1)
+
+            spoof_method = self.spoof_method_regex.search(text)
+            if spoof_method:
+                spoof_method = spoof_method.group(1)
+            else:
+                spoof_method = None
+
+            # Extract fake_region from reasoning_content
+            fake_region = None
+            # Try single fake region first
+
+            if "The fake region is the entire utterance." in text:
+                fake_region = "all"
+            else:
+                region_match = self.fake_region_regex.search(text)
+                if region_match:
+                    # Extract all time ranges from the matched text
+                    matched_text = region_match.group(0)
+                    fake_region_text = self.time_range_regex.findall(matched_text)
+                else:
+                    fake_region_text = None
+
+                if fake_region_text:
+                    fake_region = []
+                    for segment in fake_region_text:
+                        start, end = segment.split("-")
+                        try:
+                            start, end = float(start), float(end)
+                        except ValueError:
+                            fake_region = None
+                            break
+
+                        fake_region.append([float(start), float(end)])
+
+            if real_or_fake == "real":
+                if spoof_method is None and fake_region is None:
+                    format_success = True
+                else:
+                    format_success = False
+            elif real_or_fake == "fake":
+                if spoof_method is None or fake_region is None:
+                    format_success = False
+                else:
+                    format_success = True
+            else:
+                format_success = False
 
         if not self.validate_fake_region(fake_region):
             fake_region = None
@@ -173,11 +249,16 @@ def init_parser(data: list[dict] | None = None, data_format: str | None = None) 
     if data_format is None:
         if data is None:
             raise ValueError("data_format and data cannot be None at the same time")
-        try:
-            json.loads(data[0]['ref'])
-        except json.JSONDecodeError:
-            data_format = "cot"
+
+        if data[0]["ref"] in ["real", "fake"]:
+            data_format = "real_fake_raw"
+        elif data[0]["ref"].startswith("The utterance is real.") or data[0]["ref"].startswith("The utterance is fake."):
+            data_format = "raw_text"
         else:
             data_format = "json"
+            try:
+                json.loads(data[0]['ref'])
+            except json.JSONDecodeError:
+                data_format = "cot"
 
     return SpoofingParser(data_format)

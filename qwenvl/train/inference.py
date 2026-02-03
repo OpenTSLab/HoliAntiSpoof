@@ -19,13 +19,24 @@ from qwenvl.train.utils import (
     load_maybe_lora_ckpt,
     apply_liger_kernel_to_qwen2_5_vl,
     initialize_model,
+    rank0_print,
 )
+from evaluation.parsing_utils import SpoofingParser
+
+
+def search_sequence(haystack: torch.Tensor, needle: torch.Tensor) -> int:
+    if len(haystack) < len(needle):
+        return -1
+    L = len(needle)
+    matches = (haystack.unfold(0, L, 1) == needle).all(dim=1)
+    idxs = matches.nonzero(as_tuple=True)[0]
+    return idxs[0] if len(idxs) > 0 else -1
 
 
 def inference():
     entry_parser = argparse.ArgumentParser()
     entry_parser.add_argument("--config_file", "-c", type=str, required=True, help="path to config file")
-    entry_parser.add_argument("--options", nargs="+", default=[], help="Override options in the config file.")
+    entry_parser.add_argument("--options", "-o", nargs="+", default=[], help="Override options in the config file.")
 
     args = entry_parser.parse_args()
 
@@ -52,6 +63,7 @@ def inference():
     # === Read training config from `exp_dir / "config.yaml"` ===
     exp_config = OmegaConf.load(exp_dir / "config.yaml")
     del exp_config["data_dict"]  # TODO maybe `data_dict` is not the only possible data keys
+    del exp_config["global"]
 
     # === Merge it with inference config from `args.config_file` ===
     config = OmegaConf.merge(config, exp_config)
@@ -74,13 +86,13 @@ def inference():
         is_lora = True
     else:
         is_lora = False
+
     model = load_maybe_lora_ckpt(model, ckpt_dir, is_lora=is_lora)
 
     # === Prepare model for distributed evaluation ===
     model.eval()
     model.to(torch.device(f"cuda:{local_rank}"))
-    model = DDP(model, device_ids=[local_rank], find_unused_parameters=True)
-    unwrapped_model = model.module
+    unwrapped_model = model
 
     dataset = instantiate(config["test_dataloader"]["dataset"], _convert_="all")
     dist_sampler = DistributedSampler(
@@ -92,6 +104,29 @@ def inference():
     dataloader = instantiate(config["test_dataloader"], sampler=dist_sampler, _convert_="all")
 
     result = []
+
+    # text_parser = SpoofingParser(config["global"]["data_format"])
+    if config["global"]["data_format"] == "json":
+        real_token_vocab_idx = dataset.tokenizer.convert_tokens_to_ids("real")
+        fake_token_vocab_idx = dataset.tokenizer.convert_tokens_to_ids("fake")
+        real_fake_seq_idx = 6
+    elif config["global"]["data_format"] == "cot":
+        real_token_vocab_idx = dataset.tokenizer.encode(" real", add_special_tokens=False)[0]
+        fake_token_vocab_idx = dataset.tokenizer.encode(" a", add_special_tokens=False)[0]  # "a spoof"
+        search_needle = dataset.tokenizer.encode(
+            "</think>\n\nThe utterance is", add_special_tokens=False, return_tensors="pt"
+        )[0].to(unwrapped_model.device)
+    elif config["global"]["data_format"] == "real_fake_raw":
+        real_token_vocab_idx = dataset.tokenizer.convert_tokens_to_ids("real")
+        fake_token_vocab_idx = dataset.tokenizer.convert_tokens_to_ids("fake")
+        real_fake_seq_idx = 0
+    elif config["global"]["data_format"] == "raw_text":
+        real_token_vocab_idx = dataset.tokenizer.encode(" real", add_special_tokens=False)[0]
+        fake_token_vocab_idx = dataset.tokenizer.encode(" fake", add_special_tokens=False)[0]
+        real_fake_seq_idx = 4
+
+    set_breakpoint = config.get("set_breakpoint", False)
+
     for batch_idx, inputs in enumerate(tqdm(dataloader, desc=f"RANK {rank}", disable=rank != 0)):
         if inputs:
             res_i = {
@@ -123,15 +158,41 @@ def inference():
                     do_sample=config["do_sample"],
                     top_p=0.9,
                     stopping_criteria=[stopping_criteria],
+                    output_scores=True,
+                    return_dict_in_generate=True,
                 )
-            output_trimmed = outputs[0, len(inputs_on_device["input_ids"][0]):]
+
+            output_trimmed = outputs.sequences[0, len(inputs_on_device["input_ids"][0]):]
             output_text = dataset.tokenizer.decode(
                 output_trimmed, skip_special_tokens=False, clean_up_tokenization_spaces=False
             )
+
+            if config["global"]["data_format"] == "cot":
+                if "</think>\n\nThe utterance is" not in output_text:
+                    real_fake_seq_idx = -3
+                else:
+                    real_fake_seq_idx = search_sequence(output_trimmed, search_needle) + len(search_needle)
+
+            real_logit = outputs.scores[real_fake_seq_idx][0, real_token_vocab_idx].item()
+            fake_logit = outputs.scores[real_fake_seq_idx][0, fake_token_vocab_idx].item()
+            prob = torch.softmax(outputs.scores[real_fake_seq_idx], dim=-1)
+            real_prob = prob[0, real_token_vocab_idx].item()
+            fake_prob = prob[0, fake_token_vocab_idx].item()
+
             matched = pattern.search(output_text)
             if matched:
                 output_text = output_text[:matched.start()]
+
+            if torch.cuda.device_count() == 1 and set_breakpoint:
+                print(f"fake logit: {fake_logit}, real logit: {real_logit}, output: {output_text}, ref: {res_i['ref']}")
+                import ipdb
+                ipdb.set_trace()
+
             res_i["pred"] = output_text
+            res_i["real_logit"] = real_logit
+            res_i["fake_logit"] = fake_logit
+            res_i["real_prob"] = real_prob
+            res_i["fake_prob"] = fake_prob
             result.append(res_i)
 
     output_fpath = exp_dir / config["output_fname"]

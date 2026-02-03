@@ -1,0 +1,27 @@
+train:
+  - data: data_json/asvspoof2019/train.json
+  - data: data_json/partial_spoof/train.json
+  - data: data_json/sine/train.json
+  - data: data_json/wavefake/train.json
+  - data: data_json/codecfake_ntu/train.json
+  - data: data_json/partial_edit/train.json
+  - data: data_json/vctk/train.json
+  - data: data_json/ljspeech/train.json
+  - data: data_json/emofake/English_train.json
+  - data: data_json/speechfake/train.json
+  - data: data_json/daily_talk_edit/train.json
+  - data: data_json/fake_or_real/train.json
+  - data: data_json/in_the_wild/train.json
+val:
+  - data: data_json/asvspoof2019/dev.json
+  - data: data_json/partial_spoof/dev.json
+  - data: data_json/sine/val.json
+  - data: data_json/wavefake/val.json
+  - data: data_json/codecfake_ntu/val.json
+  - data: data_json/partial_edit/val.json
+  - data: data_json/vctk/val.json
+  - data: data_json/ljspeech/val.json
+  - data: data_json/emofake/English_dev.json
+  - data: data_json/speechfake/dev.json
+  - data: data_json/daily_talk_edit/val.json
+  - data: data_json/fake_or_real/val.json

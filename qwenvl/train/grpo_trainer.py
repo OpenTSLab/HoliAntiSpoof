@@ -84,8 +84,11 @@ def shuffle_tensor_dict_recursive(
         if isinstance(value, dict):
             output[key] = shuffle_tensor_dict_recursive(value, permutation)
         elif isinstance(value, torch.Tensor):
-            assert value.shape[0] == batch_size, f"Batch size mismatch at key {key}"
-            output[key] = value[permutation]
+            if value.ndim == 0:  # num_items_in_batch
+                output[key] = value
+            else:
+                assert value.shape[0] == batch_size, f"Batch size mismatch at key {key}"
+                output[key] = value[permutation]
         else:
             output[key] = None
     return output
@@ -103,7 +106,10 @@ def split_tensor_dict_recursive(tensor_dict: NestedTensorDict, num_chunks: int) 
                 chunks[i][key] = sub_chunks[i]
         elif isinstance(value, torch.Tensor):
             for i in range(num_chunks):
-                chunks[i][key] = value[i * chunk_size:(i + 1) * chunk_size]
+                if value.ndim == 0:  # num_items_in_batch
+                    chunks[i][key] = value
+                else:
+                    chunks[i][key] = value[i * chunk_size:(i + 1) * chunk_size]
         else:
             for i in range(num_chunks):
                 chunks[i][key] = None
@@ -136,6 +142,7 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
 
         # Enable gradient checkpointing if requested
         if args.gradient_checkpointing:
+            assert args.ddp_find_unused_parameters is False, "gradient_checkpointing and ddp_find_unused_parameters cannot be True at the same time"
             model = self._enable_gradient_checkpointing(model, args)
 
         # Processing class
@@ -718,6 +725,8 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
 
         # Sum along sequence dimension (dim=1) to get completion length per sequence, used for logging
         completion_lengths = completion_mask.sum(1)
+        agg_completion_lengths = self.accelerator.gather(completion_lengths)
+        total_completion_tokens = agg_completion_lengths.sum()
 
         # If mask_truncated_completions is enabled, zero out truncated completions in completion_mask
         if self.mask_truncated_completions:
@@ -769,6 +778,10 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
 
         # Apply weights to each reward function's output and sum
         rewards = (rewards_per_func * self.reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
+        # print("rewards: ", rewards)
+        # data_idxs = torch.where(rewards < 0.5)[0]
+        # for data_idx in data_idxs:
+            # print("prediction: ", completions[data_idx], "label: ", labels_text[data_idx])
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
         std_grouped_rewards = rewards.view(-1, self.num_generations).std(dim=1)
@@ -837,6 +850,7 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
             "old_per_token_logps": old_per_token_logps,
             "ref_per_token_logps": ref_per_token_logps,
             "rewards": rewards[process_slice],
+            "num_items_in_batch": total_completion_tokens,
         }
 
     def _calculate_rewards(self, inputs, prompts, completions, completion_ids_list, labels_text):
@@ -994,6 +1008,9 @@ class GRPOQwenVLTrainer(QwenVLTrainer):
             loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
         elif self.loss_type == "dr_grpo":
             loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
+        elif self.loss_type == "dapo":
+            normalizer = inputs["num_items_in_batch"] / self.accelerator.num_processes
+            loss = (per_token_loss * completion_mask).sum() / normalizer
         else:
             raise ValueError(f"Unknown loss type: {self.loss_type}")
 

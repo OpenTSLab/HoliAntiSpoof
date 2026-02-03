@@ -23,6 +23,7 @@ from transformers.feature_extraction_sequence_utils import SequenceFeatureExtrac
 
 # from qwenvl.data.rope2d import get_rope_index_25, get_rope_index_2
 from qwenvl.data.utils import is_petrel_client_available, load_audio_from_petrel_oss
+from qwenvl.data.constants import get_audio_id
 from qwenvl.data.processing_qwen2_5_omni import Qwen2_5OmniProcessor
 from qwenvl.data.processing_qwen2_audio import Qwen2AudioProcessor
 from qwenvl.train.utils import rank0_print
@@ -42,6 +43,11 @@ DEFAULT_AUDIO_TOKEN = "<audio>"
 def read_jsonl(path: str) -> list:
     with open(path, "r") as f:
         return [json.loads(line) for line in f]
+
+
+class ExcessiveDurationError(Exception):
+    """Specific exception when the audio duration exceeds the limitation"""
+    pass
 
 
 @dataclass(kw_only=True)
@@ -86,14 +92,27 @@ class MMQwenDatasetBase:
         list_data_dict = []
 
         for data in self.dataset_list:
+            if isinstance(data, dict):
+                data_idxs = data["idxs"]
+                data = data["data"]
+            else:
+                data_idxs = None
             file_format = data.split(".")[-1]
             if file_format == "jsonl":
                 annotations = read_jsonl(data)
             else:
                 annotations = json.load(open(data, "r"))
-            if self.dataset_max_samples is not None:
-                random.shuffle(annotations)
-                annotations = annotations[:self.dataset_max_samples]
+
+            if data_idxs is not None:
+                data_idxs = np.load(data_idxs)
+            else:
+                if self.dataset_max_samples is not None:
+                    all_idxs = np.arange(len(annotations))
+                    np.random.shuffle(all_idxs)
+                    data_idxs = all_idxs[:self.dataset_max_samples]
+                else:
+                    data_idxs = np.arange(len(annotations))
+            annotations = [annotations[idx] for idx in data_idxs]
             list_data_dict += annotations
 
         self.list_data_dict = list_data_dict
@@ -150,15 +169,23 @@ class MMQwenDatasetBase:
         return data_dict
 
     def __getitem__(self, i) -> dict[str, Any]:
-        try:
+
+        if self.stage == "inference":
             sample = self._get_item(i)
-        except Exception as e:
-            print(f"Error: {e}, line: {e.__traceback__.tb_lineno}")
-            if self.stage == "inference":
-                rank0_print(f"Error loading {self.list_data_dict[i]}")
-                raise e
-            else:
-                return self._get_item(random.randint(0, len(self) - 1))
+        else:
+            get_item_success = False
+            try:
+                sample = self._get_item(i)
+                get_item_success = True
+            except ExcessiveDurationError as e:
+                print(f"Error: {e}, line: {e.__traceback__.tb_lineno}")
+
+            while not get_item_success:
+                try:
+                    sample = self._get_item(random.randint(0, len(self) - 1))
+                    get_item_success = True
+                except ExcessiveDurationError as e:
+                    print(f"Error: {e}, line: {e.__traceback__.tb_lineno}")
         return sample
 
     @abstractmethod
@@ -264,6 +291,7 @@ class MMQwenDatasetBase:
 class AudioProcessingMixin:
 
     petrel_oss_config: str | None = None
+    max_duration: float | None = None
 
     def __post_init__(self, ) -> None:
         if is_petrel_client_available() and self.petrel_oss_config:
@@ -276,13 +304,23 @@ class AudioProcessingMixin:
         audio_source: str,
         sample_rate: int,
     ) -> np.ndarray:
-        if audio_source.startswith("s3://"):
-            audio, sr = load_audio_from_petrel_oss(audio_source, self.petrel_client)
-        else:
-            audio, sr = torchaudio.load(audio_source)
+        try:
+            if audio_source.startswith("s3://"):
+                audio, sr = load_audio_from_petrel_oss(audio_source, self.petrel_client)
+            else:
+                audio, sr = torchaudio.load(audio_source)
+        except Exception as e:
+            print(f"Loading {audio_source} failed: {e}")
+            raise e
         if len(audio.shape) == 2:
             # audio = audio[0]  # FIXME use the first channel instead of averaging?
             audio = audio.mean(0)
+        if self.max_duration is not None:
+            duration = audio.shape[0] / sr
+            if duration > self.max_duration:
+                raise ExcessiveDurationError(
+                    f"Audio {audio_source}'s duration {duration}s is longer than max duration {self.max_duration}s"
+                )
         audio = torchaudio.functional.resample(audio, sr, sample_rate)
         audio = audio.numpy()
         return audio
@@ -482,6 +520,46 @@ class AudioSpoofingDataset(SpoofingMixin, AudioDataset):
 
 
 @dataclass(kw_only=True)
+class AudioSpoofingRealFakeDataset(AudioSpoofingDataset):
+    def load_raw_data(self) -> None:
+        super().load_raw_data()
+
+        for idx in range(len(self.list_data_dict)):
+            item = self.list_data_dict[idx]
+            item["conversations"][0]["value"] = "<audio>\nDetermine whether this audio clip is a spoof or not."
+            item["conversations"][-1]["value"] = json.loads(item["conversations"][-1]["value"])["real_or_fake"]
+
+
+@dataclass(kw_only=True)
+class AudioSpoofingRawTextDataset(AudioSpoofingDataset):
+    def json_to_raw_text(self, json_text: str) -> str:
+        item = json.loads(json_text)
+        if item["real_or_fake"] == "real":
+            output = "The utterance is real."
+        else:
+            output = "The utterance is fake."
+            if "spoof_method" in item:
+                output += f" The spoof method is {item['spoof_method']}."
+            if "fake_region" in item:
+                if item["fake_region"] == "all":
+                    region_text = "the entire utterance"
+                else:
+                    region_text = ", ".join([f"{r[0]:.2f}-{r[1]:.2f} seconds" for r in item["fake_region"]])
+                output += f" The fake region is {region_text}."
+            if "semantic_influence" in item:
+                output += f" The spoofing may result in the following influence: {item['semantic_influence']}."
+        return output
+
+    def load_raw_data(self) -> None:
+        super().load_raw_data()
+
+        for idx in range(len(self.list_data_dict)):
+            item = self.list_data_dict[idx]
+            analysis_text = self.json_to_raw_text(item["conversations"][-1]["value"])
+            item["conversations"][-1]["value"] = analysis_text
+
+
+@dataclass(kw_only=True)
 class AudioSpoofingWithEmbeddingDataset(AudioSpoofingDataset):
     embedding_dir: str
 
@@ -535,8 +613,10 @@ class AudioSpoofingWithEmbeddingDataset(AudioSpoofingDataset):
     def load_multimodal_data(self, source) -> dict[str, Any]:
         mm_data = super().load_multimodal_data(source)
         embed_file = Path(self.embedding_dir) / f"{source['embedding_file']}.h5"
+        dataset_name = Path(embed_file).stem
         with h5py.File(embed_file, "r") as hf:
-            embedding = hf[Path(source["audio"]).name][()]
+            audio_id = get_audio_id(source["audio"], dataset_name)
+            embedding = hf[audio_id][()]
             embedding = np.array(embedding, dtype=np.float32)
         mm_data["spoof_embeds"] = embedding
         return mm_data
@@ -935,3 +1015,41 @@ class OmniPreferenceCollator(OmniCollator):
             torch.int64
         )
         return collate_samples
+
+
+if __name__ == "__main__":
+    from omegaconf import OmegaConf
+    import hydra
+
+    random.seed(2025)
+
+    dataset_config_str = r"""
+_target_: qwenvl.data.data_qwen.AudioSpoofingDataset
+stage: training
+train_type: sft
+model_type: qwen2.5omni
+dataset_list:
+  - data_json/asvspoof2019/train.json
+#   - data_json/partial_spoof/train.json
+processor:
+  _target_: qwenvl.data.processing_qwen2_5_omni.Qwen2_5OmniProcessor.from_pretrained
+  pretrained_model_name_or_path: /mnt/shared-storage-user/brainllm-share/checkpoints/Qwen2.5-Omni-7B
+data_format: "json"
+    """
+
+    collate_config_str = r"""
+_target_: qwenvl.data.data_qwen.OmniCollator
+torchify_keys:
+  - video_second_per_grid
+  - spoof_embeds
+    """
+    config = OmegaConf.create(dataset_config_str)
+    dataset = hydra.utils.instantiate(config, _convert_='all')
+    item1 = dataset[0]
+    item2 = dataset[5000]
+
+    config = OmegaConf.create(collate_config_str)
+    collate_fn = hydra.utils.instantiate(config, _convert_='all')
+
+    batch = collate_fn([item1, item2])
+    breakpoint()

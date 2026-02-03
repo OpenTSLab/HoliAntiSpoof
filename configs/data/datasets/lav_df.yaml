@@ -1,4 +1,0 @@
-train:
-  - data_json/lav_df/train.json
-val:
-  - data_json/lav_df/dev.json

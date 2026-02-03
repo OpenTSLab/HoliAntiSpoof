@@ -1,0 +1,73 @@
+defaults:
+  - global: qwen2_5_omni
+  - data@data_dict: spoofing
+  - model: qwen2_5_omni
+  - override hydra/job_logging: none
+  - _self_
+
+# data
+
+train_dataset: ${data_dict.train}
+
+val_dataset: ${data_dict.val}
+
+data_collator:
+  _target_: qwenvl.data.data_qwen.OmniCollator
+  torchify_keys:
+    - video_second_per_grid
+    - spoof_embeds
+
+metric:
+  _target_: qwenvl.train.metrics.SpoofingAccuracy
+  data_format: ${global.data_format}
+
+
+# training args
+training_args:
+  deepspeed: scripts/zero/zero0.json
+  bf16: true
+
+  output_dir: experiments/all_data/train_audio_encoder_dora_r_64
+  run_name: "train_audio_encoder_dora_r_64"
+  report_to: "tensorboard"
+
+  per_device_train_batch_size: 8
+  per_device_eval_batch_size: 4
+  dataloader_num_workers: 12
+
+  learning_rate: !!float 1e-5
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  weight_decay: 0.1
+  warmup_ratio: 0.05
+  max_grad_norm: 1
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: false
+
+  lr_scheduler_type: "cosine"
+
+  num_train_epochs: 1
+  max_steps: 20000
+
+  eval_strategy: steps
+  eval_steps: 2000
+  metric_for_best_model: "loss"
+  greater_is_better: false
+
+  save_strategy: best
+  save_steps: 5000
+  save_total_limit: 2
+
+  logging_steps: 50
+  model_max_length: 131072
+
+  remove_unused_columns: false
+
+callbacks: []
+  # - _target_: transformers.EarlyStoppingCallback
+  #   early_stopping_patience: 10
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .

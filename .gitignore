@@ -176,13 +176,19 @@ data_cot/*
 experiments/*
 
 archive/*
+llm_apis
 
 data_preprocess/
 !data_preprocess/transform_to_qwen_format.py
 
-scripts/*rjob*
+scripts/
 
 # Pyright
 pyrightconfig.json
 
 notebooks/
+
+# Test and debugging
+tests/
+
+configs/

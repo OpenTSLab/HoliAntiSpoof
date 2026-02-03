@@ -1,0 +1,42 @@
+defaults:
+  - datasets@data_lists: all_data_json
+  - _self_
+
+embedding_dir: /path/to/spoof/embeddings
+
+train:
+  _target_: qwenvl.data.data_qwen.AudioSpoofingWithEmbeddingDataset
+  stage: training
+  train_type: ${global.train_type}
+  model_type: ${global.model_type}
+  dataset_list: ${..data_lists.train}
+  processor: ${global.processor}
+  data_format: ${global.data_format}
+  embedding_dir: ${..embedding_dir}
+  petrel_oss_config: ${global.petrel_oss_config}
+  dataset_max_samples: ${global.train_dataset_max_samples}
+  max_duration: 60.0
+
+val:
+  _target_: qwenvl.data.data_qwen.AudioSpoofingWithEmbeddingDataset
+  stage: training
+  train_type: ${global.train_type}
+  model_type: ${global.model_type}
+  dataset_list: ${..data_lists.val}
+  processor: ${global.processor}
+  data_format: ${global.data_format}
+  petrel_oss_config: ${global.petrel_oss_config}
+  dataset_max_samples: ${global.val_dataset_max_samples}
+  max_duration: 60.0
+  embedding_dir: ${..embedding_dir}
+
+test:
+  _target_: qwenvl.data.data_qwen.AudioSpoofingWithEmbeddingDataset
+  stage: inference
+  model_type: ${global.model_type}
+  dataset_list:
+    - DUMMY_DATA.json
+  processor: ${global.processor}
+  data_format: ${global.data_format}
+  embedding_dir: ${..embedding_dir}
+  petrel_oss_config: ${global.petrel_oss_config}

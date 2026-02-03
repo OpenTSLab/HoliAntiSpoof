@@ -21,11 +21,9 @@ import numpy as np
 import math
 from qwenvl.model.qwen2_5_vl.modeling_bert import BertLMHeadModel
 if is_flash_attn_available():
-    from transformers.modeling_flash_attention_utils import apply_rotary_emb, flash_attn_varlen_func
-
-
-if is_flash_attn_available():
     from transformers.modeling_flash_attention_utils import _flash_attention_forward
+    from flash_attn import flash_attn_varlen_func
+
 
 def sinusoids(length: int, channels: int, max_timescale: float = 10000) -> torch.Tensor:
     """Returns sinusoids for positional embedding"""
@@ -38,19 +36,20 @@ def sinusoids(length: int, channels: int, max_timescale: float = 10000) -> torch
     scaled_time = torch.arange(length).view(-1, 1) * inv_timescales.view(1, -1)
     return torch.cat([scaled_time.sin(), scaled_time.cos()], dim=1)
 
+
 class WhisperPositionalEmbedding(nn.Embedding):
     def __init__(self, num_positions: int, embedding_dim: int, padding_idx: Optional[int] = None):
         super().__init__(num_positions, embedding_dim)
 
     def forward(self, input_ids, past_key_values_length=0, position_ids=None):
         if position_ids is None:
-            return self.weight[past_key_values_length : past_key_values_length + input_ids.shape[1]]
+            return self.weight[past_key_values_length:past_key_values_length + input_ids.shape[1]]
         else:
             return self.weight[position_ids]
 
+
 class WhisperAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
-
     def __init__(
         self,
         embed_dim: int,
@@ -137,13 +136,13 @@ class WhisperAttention(nn.Module):
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3))
 
         if attention_mask is not None:  # no matter the length, we just slice it
-            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+            causal_mask = attention_mask[:, :, :, :key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
 
         attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
         if layer_head_mask is not None:
-            if layer_head_mask.size() != (self.num_heads,):
+            if layer_head_mask.size() != (self.num_heads, ):
                 raise ValueError(
                     f"Head mask for a single layer should be of size {(self.num_heads,)}, but is"
                     f" {layer_head_mask.size()}"
@@ -175,7 +174,6 @@ class WhisperFlashAttention2(WhisperAttention):
     untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
     flash attention and deal with padding tokens in case the input contains any of them.
     """
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -242,7 +240,7 @@ class WhisperFlashAttention2(WhisperAttention):
 
         causal_mask = attention_mask
         if attention_mask is not None:  # no matter the length, we just slice it
-            causal_mask = attention_mask[:, : key_states.shape[1]]
+            causal_mask = attention_mask[:, :key_states.shape[1]]
 
         # In PEFT, usually we cast the layer norms in float32 for training stability reasons
         # therefore the input hidden states gets silently casted in float32. Hence, we need
@@ -345,7 +343,7 @@ class WhisperSdpaAttention(WhisperAttention):
 
         causal_mask = attention_mask
         if attention_mask is not None:  # no matter the length, we just slice it
-            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+            causal_mask = attention_mask[:, :, :, :key_states.shape[-2]]
 
         # We dispatch to SDPA's Flash Attention or Efficient kernels via this `is_causal` if statement instead of an inline conditional assignment
         # in SDPA to support both torch.compile's dynamic shapes and full graph options. An inline conditional prevents dynamic shapes from compiling.
@@ -385,6 +383,7 @@ WHISPER_ATTENTION_CLASSES = {
     "flash_attention_2": WhisperFlashAttention2,
     "sdpa": WhisperSdpaAttention,
 }
+
 
 class WhisperEncoderLayer(nn.Module):
     def __init__(self, config: WhisperConfig):
@@ -446,12 +445,13 @@ class WhisperEncoderLayer(nn.Module):
             clamp_value = torch.finfo(hidden_states.dtype).max - 1000
             hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
 
-        outputs = (hidden_states,)
+        outputs = (hidden_states, )
 
         if output_attentions:
-            outputs += (attn_weights,)
+            outputs += (attn_weights, )
 
         return outputs
+
 
 class WhisperPreTrainedModel(PreTrainedModel):
     config_class = WhisperConfig
@@ -490,6 +490,7 @@ class WhisperPreTrainedModel(PreTrainedModel):
 
         return input_lengths
 
+
 class WhisperEncoder(WhisperPreTrainedModel):
     """
     Transformer encoder consisting of *config.encoder_layers* self attention layers. Each layer is a
@@ -498,7 +499,6 @@ class WhisperEncoder(WhisperPreTrainedModel):
     Args:
         config: WhisperConfig
     """
-
     def __init__(self, config: WhisperConfig):
         super().__init__(config)
         self.dropout = config.dropout
@@ -520,9 +520,14 @@ class WhisperEncoder(WhisperPreTrainedModel):
         self.layer_norm = nn.LayerNorm(config.d_model)
 
         self.qformer = BertLMHeadModel._from_config(config.qformer_config, torch_dtype=torch.bfloat16)
-        self.q_tokens = nn.Parameter(torch.randn(1, config.qformer_config.query_length, config.qformer_config.hidden_size) * config.qformer_config.initializer_range)
+        self.q_tokens = nn.Parameter(
+            torch.randn(1, config.qformer_config.query_length, config.qformer_config.hidden_size) *
+            config.qformer_config.initializer_range
+        )
         self.q_tokens.data.normal_(mean=0.0, std=config.qformer_config.initializer_range)
-        self.audio_proj = nn.Linear(config.qformer_config.hidden_size, config.qformer_config.out_hidden_size, dtype=torch.bfloat16)
+        self.audio_proj = nn.Linear(
+            config.qformer_config.hidden_size, config.qformer_config.out_hidden_size, dtype=torch.bfloat16
+        )
 
         self.gradient_checkpointing = False
         # Initialize weights and apply final processing
@@ -597,7 +602,7 @@ class WhisperEncoder(WhisperPreTrainedModel):
 
         for idx, encoder_layer in enumerate(self.layers):
             if output_hidden_states:
-                encoder_states = encoder_states + (hidden_states,)
+                encoder_states = encoder_states + (hidden_states, )
             # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
             to_drop = False
             if self.training:

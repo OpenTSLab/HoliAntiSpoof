@@ -59,7 +59,7 @@ def train():
 
     entry_parser = argparse.ArgumentParser()
     entry_parser.add_argument("--config_file", "-c", required=True, type=str, help="Path to config YAML file.")
-    entry_parser.add_argument("--options", nargs="+", default=[], help="Override options in the config file.")
+    entry_parser.add_argument("--options", "-o", nargs="+", default=[], help="Override options in the config file.")
 
     args = entry_parser.parse_args()
 

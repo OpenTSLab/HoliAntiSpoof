@@ -1,8 +1,0 @@
-data_format: "json"
-train_type: "sft"
-model_type: qwen2.5omni
-pretrained_ckpt: /mnt/shared-storage-user/brainllm-share/checkpoints/Qwen2.5-Omni-7B
-processor:
-  _target_: qwenvl.data.processing_qwen2_5_omni.Qwen2_5OmniProcessor.from_pretrained
-  pretrained_model_name_or_path: ${..pretrained_ckpt}
-petrel_oss_config: /mnt/shared-storage-user/xuxuenan/petreloss.conf

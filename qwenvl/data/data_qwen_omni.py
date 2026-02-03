@@ -17,21 +17,29 @@ from collections.abc import Sequence
 
 import h5py
 import numpy as np
+import librosa
 import torch
 import torchaudio
-from PIL import Image
-
-from decord import VideoReader, cpu
 import transformers
+from glom import glom
+from PIL import Image
+from decord import VideoReader, cpu
 from transformers import PreTrainedTokenizer, WhisperFeatureExtractor
 from transformers.image_processing_utils import BaseImageProcessor
 from transformers.feature_extraction_sequence_utils import SequenceFeatureExtractor
 from transformers.models.qwen2_5_omni import Qwen2_5OmniProcessor
 from transformers.models.qwen3_omni_moe import Qwen3OmniMoeProcessor
-from qwen_omni_utils import process_mm_info
+# from qwen_omni_utils import process_mm_info
 
+from qwenvl.data.data_qwen import ExcessiveDurationError
 from qwenvl.data.processing_qwen2_audio import Qwen2AudioProcessor
+from qwenvl.data.utils import is_petrel_client_available, process_mm_info, load_audio_from_petrel_oss
+from qwenvl.data.constants import get_dataset_name, get_audio_id
+
 from qwenvl.train.utils import rank0_print
+
+if is_petrel_client_available():
+    from petrel_client.client import Client
 
 IGNORE_INDEX = -100
 IMAGE_TOKEN_INDEX = 151655
@@ -47,8 +55,20 @@ def read_jsonl(path: str) -> list:
         return [json.loads(line) for line in f]
 
 
+class AudioProcessingMixin:
+
+    petrel_client: Client | None
+
+    def get_audio_duration(self, path: str):
+        if path.startswith("s3://"):
+            waveform, sr = load_audio_from_petrel_oss(path, self.petrel_client)
+            return waveform.shape[1] / sr
+        else:
+            return librosa.get_duration(path=path)
+
+
 @dataclass(kw_only=True)
-class MMQwenDatasetBase:
+class MMQwenDatasetBase(AudioProcessingMixin):
     stage: Literal["training", "inference"] = field(default="training")
     train_type: Literal["sft", "dpo"] = field(default="sft")
 
@@ -57,54 +77,67 @@ class MMQwenDatasetBase:
 
     dataset_list: list[str]
     dataset_max_samples: int = field(default=None)
+    petrel_oss_config: str | None = None
+    max_duration: float | None = None
 
     def __post_init__(self):
         self.tokenizer = self.processor.tokenizer
         assert self.stage in ("training", "inference")
+        if is_petrel_client_available() and self.petrel_oss_config:
+            self.petrel_client = Client(self.petrel_oss_config)
+        else:
+            self.petrel_client = None
         self.load_raw_data()
-
-    def replace_image_token(self) -> None:
-        """
-        Replace <image> token with <audio> tokens in the raw data.
-        """
-        # FIXME "<audio>" should be "<audio>", not "<image>"
-        for d in self.list_data_dict:
-            if d["conversations"][0]["from"] == "system":
-                idx = 1
-            else:
-                idx = 0
-            input_dict = d["conversations"][idx]
-            if "<image>" in input_dict["value"] and not "image" in d and "video" in d:
-                input_dict["value"] = input_dict["value"].replace("<image>", "<video>")
-            if "<image>" in input_dict["value"] and not "image" in d and not "video" in d and "audio" in d:
-                input_dict["value"] = input_dict["value"].replace("<image>", "<audio>")
 
     def load_raw_data(self, ) -> None:
         rank0_print(f"Loading datasets: {self.dataset_list}")
         list_data_dict = []
 
         for data in self.dataset_list:
+            if isinstance(data, dict):
+                data_idxs = data["idxs"]
+                data = data["data"]
+            else:
+                data_idxs = None
             file_format = data.split(".")[-1]
             if file_format == "jsonl":
                 annotations = read_jsonl(data)
             else:
                 annotations = json.load(open(data, "r"))
-            if self.dataset_max_samples is not None:
-                random.shuffle(annotations)
-                annotations = annotations[:self.dataset_max_samples]
+
+            if data_idxs is not None:
+                data_idxs = np.load(data_idxs)
+            else:
+                if self.dataset_max_samples is not None:
+                    all_idxs = np.arange(len(annotations))
+                    np.random.shuffle(all_idxs)
+                    data_idxs = all_idxs[:self.dataset_max_samples]
+                else:
+                    data_idxs = np.arange(len(annotations))
+            annotations = [annotations[idx] for idx in data_idxs]
             list_data_dict += annotations
 
         self.list_data_dict = list_data_dict
-        self.replace_image_token()
         rank0_print(f"Total samples: {len(self.list_data_dict)}")
 
     def _get_item(self, i) -> dict[str, Any]:
         source = self.list_data_dict[i]
 
+        audio_duration = 0.0
+        for elem in source["conversations"][0]["content"]:
+            if elem["type"] == "audio":
+                audio_path = elem["audio"]
+                audio_duration += self.get_audio_duration(audio_path)
+
+        if self.max_duration is not None and audio_duration > self.max_duration:
+            raise ExcessiveDurationError(
+                f"Audio {audio_path} duration {audio_duration}s is longer than max duration {self.max_duration}s"
+            )
+
         data_dict = {
             # "index": i,
-            "prompt": source["conversations"][:-1],
-            "ref": source["conversations"][-1]["value"],
+            "prompt": glom(source, "conversations.0.content.-2.text"),
+            "ref": glom(source, "conversations.-1.content.0.text"),
         }
 
         feat_id_label_dict: dict = self.build_feat_id_label(source)
@@ -114,15 +147,23 @@ class MMQwenDatasetBase:
         return data_dict
 
     def __getitem__(self, i) -> dict[str, Any]:
-        try:
+
+        if self.stage == "inference":
             sample = self._get_item(i)
-        except Exception as e:
-            print(f"Error: {e}, line: {e.__traceback__.tb_lineno}")
-            if self.stage == "inference":
-                rank0_print(f"Error loading {self.list_data_dict[i]}")
-                raise e
-            else:
-                return self._get_item(random.randint(0, len(self) - 1))
+        else:
+            get_item_success = False
+            try:
+                sample = self._get_item(i)
+                get_item_success = True
+            except ExcessiveDurationError as e:
+                print(f"Error: {e}, line: {e.__traceback__.tb_lineno}")
+
+            while not get_item_success:
+                try:
+                    sample = self._get_item(random.randint(0, len(self) - 1))
+                    get_item_success = True
+                except ExcessiveDurationError as e:
+                    print(f"Error: {e}, line: {e.__traceback__.tb_lineno}")
         return sample
 
     @abstractmethod
@@ -131,10 +172,17 @@ class MMQwenDatasetBase:
             system_prompt = "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."
         else:
             system_prompt = ""
-        conversations = self.build_conversation(data_item, system_prompt)
+
+        conversations = []
+        if system_prompt:
+            conversations.append({"role": "system", "content": [{"type": "text", "text": system_prompt}]})
+        conversations.extend(data_item["conversations"])
+
         text = self.processor.apply_chat_template(conversations, add_generation_prompt=False, tokenize=False)
-        audios, images, videos = process_mm_info(conversations, use_audio_in_video=False)
-        res = self.processor(
+        audios, images, videos = process_mm_info(
+            conversations, use_audio_in_video=False, petrel_client=self.petrel_client
+        )
+        res, expanded_text = self.processor(
             text=text,
             audio=audios,
             images=images,
@@ -144,10 +192,11 @@ class MMQwenDatasetBase:
             use_audio_in_video=False
         )
         for k, v in res.items():
-            if isinstance(v, torch.Tensor):
+            if isinstance(v, torch.Tensor) and k not in ("input_features", "feature_attention_mask"):
                 res[k] = v[0]
 
-        labels = self.build_label(text)
+        expanded_text = expanded_text[0]
+        labels = self.build_label(expanded_text)
 
         if self.stage == "inference":
             len_input = sum(labels == IGNORE_INDEX)
@@ -157,48 +206,6 @@ class MMQwenDatasetBase:
             res["labels"] = labels
 
         return res
-
-    def build_conversation(self, data_item: dict, system_prompt: str | None = None) -> list[dict]:
-        source = copy.deepcopy(data_item["conversations"])
-        if system_prompt is not None and source[0]["from"] != "system":
-            conversations = [{"role": "system", "content": [{"type": "text", "text": system_prompt}]}]
-        else:
-            conversations = []
-
-        for conv in source:
-            if conv["from"] == "system":
-                conversations.append({"role": "system", "content": [{"type": "text", "text": conv["value"]}]})
-            elif conv["from"] == "human":
-                if "<video>\n" in conv["value"]:
-                    conversations.append({
-                        "role":
-                            "user",
-                        "content": [{
-                            "type": "video",
-                            "video": data_item["video"]
-                        }, {
-                            "type": "text",
-                            "text": conv["value"].replace("<video>\n", "")
-                        }]
-                    })
-                elif "<audio>\n" in conv["value"]:
-                    conversations.append({
-                        "role":
-                            "user",
-                        "content": [{
-                            "type": "audio",
-                            "audio": data_item["audio"]
-                        }, {
-                            "type": "text",
-                            "text": conv["value"].replace("<audio>\n", "")
-                        }]
-                    })
-                else:
-                    conversations.append({"role": "user", "content": [{"type": "text", "text": conv["value"]}]})
-            else:
-                conversations.append({"role": "assistant", "content": [{"type": "text", "text": conv["value"]}]})
-
-        return conversations
 
     def build_label(
         self,
@@ -233,7 +240,7 @@ class AudioDataset(MMQwenDatasetBase):
 
     def _get_item(self, i) -> dict[str, Any]:
         data_dict = super()._get_item(i)
-        data_dict["audio"] = self.list_data_dict[i]["audio"]
+        data_dict["audio"] = self.list_data_dict[i]["conversations"][0]["content"][-1]["audio"]
         return data_dict
 
 
@@ -259,42 +266,60 @@ class AudioSpoofingWithEmbeddingDataset(AudioSpoofingDataset):
     embedding_dir: str
 
     def __post_init__(self):
-        from qwenvl.model.processing_qwen_omni_spoofing import (
+        from qwenvl.data.processing_qwen_omni_spoofing import (
             Qwen2_5OmniWithSpoofingProcessor, Qwen3OmniMoeWithSpoofingProcessor
         )
         assert isinstance(self.processor, (Qwen2_5OmniWithSpoofingProcessor, Qwen3OmniMoeWithSpoofingProcessor))
+        self.embedding_dir = Path(self.embedding_dir)
         return super().__post_init__()
 
-    def load_raw_data(self, ) -> None:
-        rank0_print(f"Loading datasets: {self.dataset_list}")
-        list_data_dict = []
+    # def load_raw_data(self, ) -> None:
+    #     rank0_print(f"Loading datasets: {self.dataset_list}")
+    #     list_data_dict = []
 
-        for data in self.dataset_list:
-            file_format = data.split(".")[-1]
-            if file_format == "jsonl":
-                annotations = read_jsonl(data)
-            else:
-                annotations = json.load(open(data, "r"))
-            if self.dataset_max_samples is not None:
-                random.shuffle(annotations)
-                annotations = annotations[:self.dataset_max_samples]
-            list_data_dict += annotations
+    #     for data in self.dataset_list:
+    #         if isinstance(data, dict):
+    #             data_idxs = data["idxs"]
+    #             data = data["data"]
+    #         else:
+    #             data_idxs = None
+    #         file_format = data.split(".")[-1]
+    #         if file_format == "jsonl":
+    #             annotations = read_jsonl(data)
+    #         else:
+    #             annotations = json.load(open(data, "r"))
 
-            dataset_name = Path(data).parent.parts[-1]
-            for anno in annotations:
-                anno["embedding_file"] = dataset_name
+    #         if data_idxs is not None:
+    #             data_idxs = np.load(data_idxs)
+    #         else:
+    #             if self.dataset_max_samples is not None:
+    #                 all_idxs = np.arange(len(annotations))
+    #                 np.random.shuffle(all_idxs)
+    #                 data_idxs = all_idxs[:self.dataset_max_samples]
+    #             else:
+    #                 data_idxs = np.arange(len(annotations))
+    #         annotations = annotations[:self.dataset_max_samples]
+    #         list_data_dict += annotations
 
-        self.list_data_dict = list_data_dict
-        self.replace_image_token()
-        rank0_print(f"Total training samples: {len(self.list_data_dict)}")
+    #     self.list_data_dict = list_data_dict
+    #     rank0_print(f"Total training samples: {len(self.list_data_dict)}")
 
     def build_feat_id_label(self, data_item):
         res = super().build_feat_id_label(data_item)
-        embed_file = Path(self.embedding_dir) / f"{data_item['embedding_file']}.h5"
-        with h5py.File(embed_file, "r") as hf:
-            embedding = hf[Path(data_item["audio"]).name][()]
-            embedding = np.array(embedding, dtype=np.float32)
-        res["spoof_embeds"] = embedding
+
+        spoof_embeds = []
+        for elem in data_item["conversations"][0]["content"]:
+            if elem["type"] == "audio":
+                audio_path = elem["audio"]
+                dataset_name = get_dataset_name(audio_path)
+                embed_file = self.embedding_dir / f"{dataset_name}.h5"
+                audio_id = get_audio_id(audio_path, dataset_name)
+                with h5py.File(embed_file, "r") as hf:
+                    embedding = hf[audio_id][()]
+                    embedding = np.array(embedding, dtype=np.float32)
+                    spoof_embeds.append(embedding)
+
+        res["spoof_embeds"] = torch.as_tensor(np.stack(spoof_embeds))
         return res
 
 
@@ -317,47 +342,6 @@ class AudioVideoDataset(MMQwenDatasetBase):
         return data_dict
 
 
-@dataclass
-class OmniCollator:
-    padding_config: dict[str, int] = field(default_factory=lambda: {"input_ids": PAD_TOKEN_ID, "labels": IGNORE_INDEX})
-    concat_keys: list[str] = field(
-        default_factory=lambda: ["pixel_values_videos", "video_grid_thw", "input_features", "feature_attention_mask"]
-    )
-    torchify_keys: list[str] = field(default_factory=lambda: ["video_second_per_grid"])
-
-    def __post_init__(self) -> None:
-        default = {"input_ids": PAD_TOKEN_ID, "labels": IGNORE_INDEX}
-        self.padding_config = {**default, **self.padding_config}
-
-    def __call__(self, instances: list[dict[str, Any]]) -> dict[str, Sequence[Any] | None]:
-        collate_samples: dict[str, Any] = {k: [dic[k] for dic in instances] for k in instances[0]}
-        batch_keys = list(collate_samples.keys())
-
-        for key in batch_keys:
-            if key in self.padding_config:
-                data_batch = torch.nn.utils.rnn.pad_sequence(
-                    collate_samples[key], batch_first=True, padding_value=self.padding_config[key]
-                )
-            elif key in self.concat_keys:
-                if collate_samples[key][0] is not None:
-                    data_batch = torch.cat(collate_samples[key], dim=0)
-                else:
-                    data_batch = None
-            elif key in self.torchify_keys:
-                if collate_samples[key][0] is not None:
-                    data_batch = torch.tensor(np.array(collate_samples[key]))
-                else:
-                    data_batch = None
-            else:
-                data_batch = collate_samples[key]
-
-            collate_samples[key] = data_batch
-
-        collate_samples["attention_mask"] = collate_samples["input_ids"].ne(PAD_TOKEN_ID).to(torch.int64)
-
-        return collate_samples
-
-
 if __name__ == "__main__":
     from omegaconf import OmegaConf
     import hydra
@@ -370,26 +354,27 @@ stage: training
 train_type: sft
 model_type: qwen2.5omni
 dataset_list:
-  - data/asvspoof2019/train.json
-  - data/partial_spoof/train.json
+  - data_json/asvspoof2019/train_icl.json
+#   - data_json/partial_spoof/train.json
 processor:
-  _target_: transformers.Qwen2_5OmniProcessor.from_pretrained
+  _target_: qwenvl.data.processing_qwen2_5_omni.Qwen2_5OmniProcessor.from_pretrained
   pretrained_model_name_or_path: /mnt/shared-storage-user/brainllm-share/checkpoints/Qwen2.5-Omni-7B
 data_format: "json"
     """
 
     collate_config_str = r"""
-_target_: qwenvl.data.data_qwen_omni.OmniCollator
+_target_: qwenvl.data.data_qwen.OmniCollator
 torchify_keys:
   - video_second_per_grid
   - spoof_embeds
     """
     config = OmegaConf.create(dataset_config_str)
     dataset = hydra.utils.instantiate(config, _convert_='all')
-    item = dataset[0]
+    item1 = dataset[0]
+    item2 = dataset[5000]
 
     config = OmegaConf.create(collate_config_str)
     collate_fn = hydra.utils.instantiate(config, _convert_='all')
 
-    batch = collate_fn([item])
+    batch = collate_fn([item1, item2])
     breakpoint()

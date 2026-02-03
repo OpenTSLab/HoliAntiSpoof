@@ -2446,8 +2446,6 @@ class Qwen2_5OmniThinkerForConditionalGeneration(
                     inputs_embeds.device
                 ))
                 audio_features = audio_features.to(inputs_embeds.device, inputs_embeds.dtype)
-                # if torch.cuda.current_device() == 0:
-                #     print(f"RANK 0 audio_embeds: {audio_features.shape}")
                 inputs_embeds = inputs_embeds.masked_scatter(audio_mask, audio_features)
 
             if pixel_values is not None:
@@ -2466,13 +2464,7 @@ class Qwen2_5OmniThinkerForConditionalGeneration(
                     inputs_embeds.device
                 ))
                 video_embeds = video_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
-                # if torch.cuda.current_device() == 0:
-                #     print(f"RANK 0 video_embeds: {video_embeds.shape}")
                 inputs_embeds = inputs_embeds.masked_scatter(video_mask, video_embeds)
-
-            # if (input_features is not None or pixel_values_videos
-            #     is not None) and torch.cuda.current_device() == 0:
-            #     print(f"RANK 0 inputs_embeds: {inputs_embeds.shape}")
 
             if attention_mask is not None:
                 attention_mask = attention_mask.to(inputs_embeds.device)

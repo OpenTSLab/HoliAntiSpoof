@@ -317,6 +317,7 @@ class QwenVLTrainer(Trainer):
             log_entry = {
                 "epoch": f"{logs['epoch']:.3g}",
                 "eval_loss": f"{logs['eval_loss']:.3g}",
+                "global_step": self.state.global_step,
             }
             if self.compute_metrics is not None:
                 metric_name = self.compute_metrics.name
@@ -338,6 +339,7 @@ class QwenVLTrainer(Trainer):
 
 class QwenVLTrainerWithPdb(QwenVLTrainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        import ipdb
-        ipdb.set_trace()
+        # import ipdb
+        # ipdb.set_trace()
         return super().compute_loss(model, inputs, return_outputs, num_items_in_batch)
+    

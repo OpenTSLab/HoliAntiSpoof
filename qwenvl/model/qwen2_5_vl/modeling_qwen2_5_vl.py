@@ -55,10 +55,9 @@ from liger_kernel.transformers.cross_entropy import LigerCrossEntropyLoss
 from .. import ModelTypeMixin
 
 if is_flash_attn_available():
-    from transformers.modeling_flash_attention_utils import apply_rotary_emb, flash_attn_varlen_func
-
-if is_flash_attn_available():
     from transformers.modeling_flash_attention_utils import _flash_attention_forward
+    from flash_attn import flash_attn_varlen_func
+    from flash_attn.layers.rotary import apply_rotary_emb
 
 logger = logging.get_logger(__name__)
 
