@@ -815,7 +815,7 @@ class AudioVideoDataset(MMQwenDatasetBase, AudioProcessingMixin):
             video_grid_thw_merged, second_per_grid_ts = [None] * 9
 
         if "image" in source:
-            image, image_grid_thw, image_grid_thw_merged = self.load_image(self.list_data_dict[i]["image"])
+            image, image_grid_thw, image_grid_thw_merged = self.load_image(source["image"])
 
         if "video" in source:
             use_audio = "use_audio" in source and source["use_audio"]

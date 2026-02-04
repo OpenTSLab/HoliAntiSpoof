@@ -1,62 +1,51 @@
-# README
+# HoliAntiSpoof: Audio LLM for Holistic Speech Anti-Spoofing
 
-## Data Format
+This repository is the official code release for the paper "HoliAntiSpoof: Audio LLM for Holistic Speech Anti-Spoofing".
 
-```json
-[
-  {
-    "video": "xxx",
-    "audio": "xxx",
-    "conversations": [
-      {
-        "from": "human",
-        "value": "<image>\nYour Prompt Here."
-      },
-      {
-        "from": "gpt",
-        "value": "xxx"
-      }
-    ]
-  },
-  // ...
-]
-```
+## Data and PreTrained Model
+DailyTalkEdit and the semantic influence annotation of PartialEdit are provided [here](https://huggingface.co/datasets/wsntxxn/DailyTalkEdit).
 
-For audio-only data, simply skip "video" item and only leave "audio" and "conversations" items in the JSON object.
+The pretrained HoliAntiSpoof (DoRA rank = 64) checkpoint is available [here](https://huggingface.co/wsntxxn/HoliAntiSpoof).
 
-## Training
+## Quick Start
+
+### Data Preparation
+
+Prepare the anti-spoofing data based on formats in `example_data/partial_edit.json`, where `"audio"` is the absolute audio path.
+
+### Training
 
 ```bash
-torchrun xxx \
-  qwenvl/train/train_qwen.py \
-  --config_file configs/train.yaml
+export PYTHONPATH=.
+torchrun <args> \
+    qwenvl/train/train_qwen.py \
+    -c example_configs/train_sft.yaml \
+    -o \
+    training_args.output_dir=experiments/holi_anti_spoof
 ```
+Arguments after `-o`/`--overrides` follow hydra override rules, i.e., `arg1=val1 arg2=val2 ++arg3=val3`.
 
-Training on ASVSpoof2019 and using SpoofingWithEmbeddingDataset:
-```bash
-torchrun xxx \
-  qwenvl/train/train_qwen.py \
-  --config_file configs/train.yaml \
-  --options \
-  data/datasets@data_dict.data_lists=asvspoof2019 \
-  data@data_dict=spoofing_with_embed
-```
-
-Arguments after `--options` follow hydra override rules.
-
-## Inference
+### Inference
 
 ```bash
-torchrun xxx \
+torchrun <args> \
     qwenvl/train/inference.py \
-    -c configs/infer.yaml \
-    -ckpt $ckpt_path \
-    --options \
-    data_dict.test.dataset_list.0=xxxx.json \
-    ++output_fname=xxxx.json \
+    -c example_configs/infer.yaml \
+    -ckpt <ckpt_path> \
+    -o \
+    data_dict.test.dataset_list.0=/path/to/infer/data.json \
+    ++output_fname=path/to/output.json \
     ++test_dataloader.batch_size=1
 ```
+Inference results will be saved to `<ckpt_path>/../path/to/output.json`.
 
-Results will be saved to `$ckpt_path/../xxxx.json`.
+### Evaluation
 
-See scripts in `scripts` for more examples.
+```bash
+python evaluation/eval_real_fake.py \
+    -c example_configs/eval/asvspoof2019.yaml \
+    infer_dir=<infer_dir>
+```
+Corresponding settings are specified in `example_configs/eval/asvspoof2019.yaml`.
+
+## Citation

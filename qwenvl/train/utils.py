@@ -1,3 +1,4 @@
+import argparse
 import random
 from pathlib import Path
 
@@ -96,6 +97,17 @@ def load_config(config_file: str, overrides: list[str] = []) -> dict:
         config = compose(config_name=config_fname, overrides=overrides)
     OmegaConf.resolve(config)
     config = OmegaConf.to_container(config)
+    return config
+
+
+def load_config_from_cli():
+    entry_parser = argparse.ArgumentParser()
+    entry_parser.add_argument("--config_file", "-c", type=str, required=True, help="path to config file")
+    entry_parser.add_argument("--overrides", "-o", nargs="+", default=[], help="Override options in the config file.")
+
+    args = entry_parser.parse_args()
+
+    config = load_config(args.config_file, args.overrides)
     return config
 
 

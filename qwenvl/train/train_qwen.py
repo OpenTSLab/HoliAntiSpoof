@@ -59,7 +59,7 @@ def train():
 
     entry_parser = argparse.ArgumentParser()
     entry_parser.add_argument("--config_file", "-c", required=True, type=str, help="Path to config YAML file.")
-    entry_parser.add_argument("--options", "-o", nargs="+", default=[], help="Override options in the config file.")
+    entry_parser.add_argument("--overrides", "-o", nargs="+", default=[], help="Override options in the config file.")
 
     args = entry_parser.parse_args()
 
@@ -68,7 +68,7 @@ def train():
 
     parser = transformers.HfArgumentParser((TrainingArguments))
 
-    config = load_config(args.config_file, args.options)
+    config = load_config(args.config_file, args.overrides)
 
     training_args, = parser.parse_dict(config["training_args"], allow_extra_keys=True)
     # `dist.init_process_group` is called in the parsing of `training_args`

@@ -1,13 +1,11 @@
 import json
-import re
 from collections import Counter
 from pathlib import Path
-from json import JSONDecodeError
 
-import hydra
 from sklearn.metrics import accuracy_score, f1_score
 
-from evaluation.parsing_utils import SpoofingParser, init_parser
+from evaluation.parsing_utils import init_parser
+from qwenvl.train.utils import load_config_from_cli
 
 # spoof_method mapping
 detailed_spoof_method_mapping = {
@@ -31,9 +29,8 @@ coarse_spoof_method_mapping = {
 }
 
 
-@hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_composite")
-def main(config):
-
+def main():
+    config = load_config_from_cli()
     is_coarse = config.get("is_coarse", True)
 
     output = []

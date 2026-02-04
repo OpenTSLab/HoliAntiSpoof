@@ -28,14 +28,14 @@ def train():
 
     entry_parser = argparse.ArgumentParser()
     entry_parser.add_argument("--config_file", "-c", required=True, type=str, help="Path to config YAML file.")
-    entry_parser.add_argument("--options", nargs="+", default=[], help="Override options in the config file.")
+    entry_parser.add_argument("--overrides", nargs="+", default=[], help="Override options in the config file.")
 
     args = entry_parser.parse_args()
 
     seed = 2025
     set_seed(seed)
 
-    config = load_config(args.config_file, args.options)
+    config = load_config(args.config_file, args.overrides)
     train_type = config["global"]["train_type"]
     assert train_type in ["dpo", "grpo"], f"train_type {train_type} is not supported in RL training"
 

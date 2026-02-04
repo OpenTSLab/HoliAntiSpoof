@@ -1,14 +1,15 @@
 import json
 from pathlib import Path
 
-import hydra
 from sklearn.metrics import accuracy_score, f1_score
 
+from qwenvl.train.utils import load_config_from_cli
 from evaluation.parsing_utils import init_parser
 
 
-@hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_composite")
-def main(config):
+def main():
+
+    config = load_config_from_cli()
     files = set()
     output = []
     for dataset in config.pred_durations:

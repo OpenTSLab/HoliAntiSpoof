@@ -1,17 +1,15 @@
 import json
-import re
 from pathlib import Path
 from json import JSONDecodeError
 
-from pprint import pprint
-import hydra
 from tqdm import tqdm
 
-from evaluation.parsing_utils import SpoofingParser
+from evaluation.parsing_utils import init_parser
+from qwenvl.train.utils import load_config_from_cli
 
 
-@hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_composite")
-def main(config):
+def main():
+    config = load_config_from_cli()
     files = set()
     output = []
     for dataset in config.pred_durations:
@@ -28,13 +26,7 @@ def main(config):
     keyword_matched = 0
     total_num = 0
 
-    data_format = "json"
-    try:
-        json.loads(output[0]['ref'])
-    except JSONDecodeError:
-        data_format = "cot"
-
-    text_parser = SpoofingParser(data_format)
+    text_parser = init_parser(output)
 
     for idx, item in enumerate(output):
         if "audio" in item:

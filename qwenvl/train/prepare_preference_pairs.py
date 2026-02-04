@@ -27,7 +27,7 @@ from qwenvl.train.reward_functions import SpoofReward
 def run():
     entry_parser = argparse.ArgumentParser()
     entry_parser.add_argument("--config_file", "-c", type=str, required=True, help="path to config file")
-    entry_parser.add_argument("--options", nargs="+", default=[], help="Override options in the config file.")
+    entry_parser.add_argument("--overrides", nargs="+", default=[], help="Override options in the config file.")
 
     args = entry_parser.parse_args()
 
@@ -35,7 +35,7 @@ def run():
     config_dir = Path(config_fpath).parent.absolute().__str__()
     config_fname = Path(config_fpath).name
     with initialize_config_dir(config_dir=config_dir, version_base=None):
-        config = compose(config_name=config_fname, overrides=args.options)
+        config = compose(config_name=config_fname, overrides=args.overrides)
     OmegaConf.set_struct(config, False)  # allow new key, to merge with `exp_config`
 
     # === Load config from experiment directory ===

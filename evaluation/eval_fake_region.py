@@ -1,17 +1,15 @@
 import json
-import re
 from pathlib import Path
-from json import JSONDecodeError
 
-import hydra
 import pandas as pd
+
 from evaluation.metrics import calculate_segment_f1
-
 from evaluation.parsing_utils import init_parser
+from qwenvl.train.utils import load_config_from_cli
 
 
-@hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_fake_region")
-def main(config):
+def main():
+    config = load_config_from_cli()
 
     is_partial_only = config.get("is_partial_only", True)
 

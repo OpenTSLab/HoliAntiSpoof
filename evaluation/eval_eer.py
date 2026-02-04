@@ -7,6 +7,7 @@ import torch
 import hydra
 
 from evaluation.parsing_utils import init_parser
+from qwenvl.train.utils import load_config_from_cli
 
 
 def compute_det_curve(target_scores: np.ndarray, nontarget_scores: np.ndarray):
@@ -57,6 +58,7 @@ def calc_score(item: dict[str, Any], score_name: str):
 
 @hydra.main(version_base=None, config_path="../configs/eval", config_name="eval_composite")
 def main(config):
+    config = load_config_from_cli()
     # infer_result: str, score_name: str = "binary_prob"
     score_name = config.spoof_score_name
     assert score_name in ("logit", "binary_prob", "vocab_prob_orig", "vocab_prob_normed")
