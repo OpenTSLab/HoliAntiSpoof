@@ -1,6 +1,6 @@
 # HoliAntiSpoof: Audio LLM for Holistic Speech Anti-Spoofing
 
-This repository is the official code release for the paper "HoliAntiSpoof: Audio LLM for Holistic Speech Anti-Spoofing".
+This repository is the official code release for the paper ["HoliAntiSpoof: Audio LLM for Holistic Speech Anti-Spoofing"](https://arxiv.org/abs/2602.04535).
 
 ## Data and PreTrained Model
 DailyTalkEdit and the semantic influence annotation of PartialEdit are provided [here](https://huggingface.co/datasets/wsntxxn/DailyTalkEdit).
@@ -49,3 +49,12 @@ python evaluation/eval_real_fake.py \
 Corresponding settings are specified in `example_configs/eval/asvspoof2019.yaml`.
 
 ## Citation
+
+```BibTeX
+@article{xu2026holiantispoof,
+  title={HoliAntiSpoof: Audio LLM for Holistic Speech Anti-Spoofing},
+  author={Xu, Xuenan and Ren, Yiming and Liu, Liwei and Wu, Wen and Li, Baoxiang and Lu, Chaochao and Wang, Shuai and Zhang, Chao},
+  journal={arXiv preprint arXiv:2602.04535},
+  year={2026}
+}
+```
